@@ -95,7 +95,7 @@ class SidebarViewPane extends ViewPane {
 
 
 
-// ---------- Register viewpane inside the void container ----------
+// ---------- Register viewpane inside the ONYX container ----------
 
 // const voidThemeIcon = Codicon.symbolObject;
 // const voidViewIcon = registerIcon('void-view-icon', voidThemeIcon, localize('voidViewIcon', 'View icon of the Void chat view.'));
