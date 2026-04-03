@@ -49,7 +49,7 @@ class VoidSettingsInput extends EditorInput {
 	}
 
 	override getName(): string {
-		return nls.localize('voidSettingsInputsName', 'Void\'s Settings');
+		return nls.localize('voidSettingsInputsName', 'ONYX Settings');
 	}
 
 	override getIcon() {
