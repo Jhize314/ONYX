@@ -175,6 +175,12 @@ const _validatedModelState = (state: Omit<VoidSettingsState, '_modelOptions'>): 
 		}
 	}
 
+	const codexModel = newSettingsOfProvider.openAI.models.find(m => m.modelName === 'gpt-5.2-codex')
+	const hasCodexModelOption = newModelOptions.some(m => modelSelectionsEqual(m.selection, { providerName: 'openAI', modelName: 'gpt-5.2-codex' }))
+	if (codexModel && !codexModel.isHidden && !hasCodexModelOption) {
+		newModelOptions.push({ name: 'gpt-5.2-codex (openAI)', selection: { providerName: 'openAI', modelName: 'gpt-5.2-codex' } })
+	}
+
 	// now that model options are updated, make sure the selection is valid
 	// if the user-selected model is no longer in the list, update the selection for each feature that needs it to something relevant (the 0th model available, or null)
 	let newModelSelectionOfFeature = state.modelSelectionOfFeature

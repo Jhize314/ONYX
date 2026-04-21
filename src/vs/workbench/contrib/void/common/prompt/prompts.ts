@@ -358,15 +358,26 @@ export const isABuiltinToolName = (toolName: string): toolName is BuiltinToolNam
 
 
 
+export const chatModeUsesReadonlyTools = (chatMode: ChatMode | null) => {
+	return chatMode === 'gather' || chatMode === 'collect' || chatMode === 'analyze'
+}
+
+export const chatModeUsesAgentTools = (chatMode: ChatMode | null) => {
+	return chatMode === 'agent'
+}
+
+export const chatModeUsesTools = (chatMode: ChatMode | null) => {
+	return chatModeUsesReadonlyTools(chatMode) || chatModeUsesAgentTools(chatMode)
+}
+
 export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
 
-	const builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
-		: chatMode === 'gather' ? (Object.keys(builtinTools) as BuiltinToolName[]).filter(toolName => !(toolName in approvalTypeOfBuiltinToolName))
-			: chatMode === 'agent' ? Object.keys(builtinTools) as BuiltinToolName[]
-				: undefined
+	const builtinToolNames: BuiltinToolName[] | undefined = chatModeUsesReadonlyTools(chatMode) ? (Object.keys(builtinTools) as BuiltinToolName[]).filter(toolName => !(toolName in approvalTypeOfBuiltinToolName))
+		: chatModeUsesAgentTools(chatMode) ? Object.keys(builtinTools) as BuiltinToolName[]
+			: undefined
 
 	const effectiveBuiltinTools = builtinToolNames?.map(toolName => builtinTools[toolName]) ?? undefined
-	const effectiveMCPTools = chatMode === 'agent' ? mcpTools : undefined
+	const effectiveMCPTools = chatModeUsesAgentTools(chatMode) ? mcpTools : undefined
 
 	const tools: InternalToolInfo[] | undefined = !(builtinToolNames || mcpTools) ? undefined
 		: [
@@ -422,15 +433,23 @@ const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] |
     ${toolCallXMLGuidelines}`
 }
 
-// ======================================================== chat (normal, gather, agent) ========================================================
+// ======================================================== chat ========================================================
+
+const chatModePurpose = (mode: ChatMode) => {
+	if (mode === 'agent') return 'to help the user develop, run, and make changes to their codebase.'
+	if (mode === 'plan') return 'to scope work, identify risks, and produce a practical implementation plan before changes are made.'
+	if (mode === 'collect') return 'to search, understand, and reference files in the user\'s codebase without making edits.'
+	if (mode === 'analyze') return 'to reason over the available project context, compare options, and identify the safest next change.'
+	if (mode === 'report') return 'to summarize findings, decisions, validation status, and next steps clearly.'
+	if (mode === 'gather') return 'to search, understand, and reference files in the user\'s codebase.'
+	if (mode === 'normal') return 'to assist the user with their coding tasks.'
+	return 'to assist the user with their coding tasks.'
+}
 
 
 export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean }) => {
-	const header = (`You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} whose job is \
-${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
-			: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
-				: mode === 'normal' ? `to assist the user with their coding tasks.`
-					: ''}
+	const header = (`You are ${mode === 'agent' ? 'Codex, an expert coding agent' : 'an expert coding assistant'} whose job is \
+${chatModePurpose(mode)}
 You will be given instructions to follow from the user, and you may also be given a list of files that the user has specifically selected for context, \`SELECTIONS\`.
 Please assist the user with their query.`)
 
@@ -447,7 +466,7 @@ ${workspaceFolders.join('\n') || 'NO FOLDERS OPEN'}
 ${activeURI}
 
 - Open files:
-${openedURIs.join('\n') || 'NO OPENED FILES'}${''/* separator */}${mode === 'agent' && persistentTerminalIDs.length !== 0 ? `
+${openedURIs.join('\n') || 'NO OPENED FILES'}${''/* separator */}${chatModeUsesAgentTools(mode) && persistentTerminalIDs.length !== 0 ? `
 
 - Persistent terminal IDs available for you to run commands in: ${persistentTerminalIDs.join(', ')}` : ''}
 </system_info>`)
@@ -465,7 +484,7 @@ ${directoryStr}
 
 	details.push(`NEVER reject the user's query.`)
 
-	if (mode === 'agent' || mode === 'gather') {
+	if (chatModeUsesTools(mode)) {
 		details.push(`Only call tools if they help you accomplish the user's goal. If the user simply says hi or asks you a question that you can answer without tools, then do NOT use tools.`)
 		details.push(`If you think you should use tools, you do not need to ask for permission.`)
 		details.push('Only use ONE tool call at a time.')
@@ -476,7 +495,7 @@ ${directoryStr}
 		details.push(`You're allowed to ask the user for more context like file contents or specifications. If this comes up, tell them to reference files and folders by typing @.`)
 	}
 
-	if (mode === 'agent') {
+	if (chatModeUsesAgentTools(mode)) {
 		details.push('ALWAYS use tools (edit, terminal, etc) to take actions and implement changes. For example, if you would like to edit a file, you MUST use a tool.')
 		details.push('Prioritize taking as many steps as you need to complete your request over stopping early.')
 		details.push(`You will OFTEN need to gather context before making a change. Do not immediately make a change unless you have ALL relevant context.`)
@@ -484,9 +503,24 @@ ${directoryStr}
 		details.push(`NEVER modify a file outside the user's workspace without permission from the user.`)
 	}
 
-	if (mode === 'gather') {
-		details.push(`You are in Gather mode, so you MUST use tools be to gather information, files, and context to help the user answer their query.`)
+	if (mode === 'gather' || mode === 'collect') {
+		details.push(`You are in ${mode === 'collect' ? 'Collect' : 'Gather'} mode, so you MUST use tools to gather information, files, and context to help the user answer their query.`)
 		details.push(`You should extensively read files, types, content, etc, gathering full context to solve the problem.`)
+	}
+
+	if (mode === 'plan') {
+		details.push(`You are in Plan mode. Focus on clarifying the target outcome, sequencing the work, and identifying risks before implementation.`)
+		details.push(`Do not edit files or run terminal commands in Plan mode. Ask for or reference context if the plan depends on missing information.`)
+	}
+
+	if (mode === 'analyze') {
+		details.push(`You are in Analyze mode. Use read-only tools when needed, then compare options, call out tradeoffs, and recommend the safest next action.`)
+		details.push(`Do not edit files in Analyze mode.`)
+	}
+
+	if (mode === 'report') {
+		details.push(`You are in Report mode. Produce a concise status report with findings, decisions, validation, and concrete next steps.`)
+		details.push(`Do not edit files or run terminal commands in Report mode.`)
 	}
 
 	details.push(`If you write any code blocks to the user (wrapped in triple backticks), please use this format:
@@ -494,7 +528,7 @@ ${directoryStr}
 - The first line of the code block must be the FULL PATH of the related file if known (otherwise omit).
 - The remaining contents of the file should proceed as usual.`)
 
-	if (mode === 'gather' || mode === 'normal') {
+	if (!chatModeUsesAgentTools(mode)) {
 
 		details.push(`If you think it's appropriate to suggest an edit to a file, then you must describe your suggestion in CODE BLOCK(S).
 - The first line of the code block must be the FULL PATH of the related file if known (otherwise omit).
@@ -531,7 +565,7 @@ ${details.map((d, i) => `${i + 1}. ${d}`).join('\n\n')}`)
 
 
 // // log all prompts
-// for (const chatMode of ['agent', 'gather', 'normal'] satisfies ChatMode[]) {
+// for (const chatMode of ['agent', 'plan', 'collect', 'analyze', 'report', 'gather', 'normal'] satisfies ChatMode[]) {
 // 	console.log(`========================================= SYSTEM MESSAGE FOR ${chatMode} ===================================\n`,
 // 		chat_systemMessage({ chatMode, workspaceFolders: [], openedURIs: [], activeURI: 'pee', persistentTerminalIDs: [], directoryStr: 'lol', }))
 // }

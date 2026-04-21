@@ -248,16 +248,26 @@ const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) =>
 
 
 const nameOfChatMode = {
+	'plan': 'Plan',
+	'collect': 'Collect',
+	'analyze': 'Analyze',
+	'report': 'Report',
 	'normal': 'Chat',
-	'gather': 'Gather',
 	'agent': 'Agent',
-}
+	'gather': 'Gather',
+} satisfies Record<ChatMode, string>
 
 const detailOfChatMode = {
+	'plan': 'Scopes work before changes',
+	'collect': 'Reads files, but can\'t edit',
+	'analyze': 'Reasons over gathered context',
+	'report': 'Summarizes findings and next steps',
 	'normal': 'Normal chat',
+	'agent': 'Legacy full-tool agent mode',
 	'gather': 'Reads files, but can\'t edit',
-	'agent': 'Edits files and uses tools',
-}
+} satisfies Record<ChatMode, string>
+
+const visibleChatModes: ChatMode[] = ['normal', 'plan', 'collect', 'analyze', 'report']
 
 
 const ChatModeDropdown = ({ className }: { className: string }) => {
@@ -266,7 +276,13 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 	const voidSettingsService = accessor.get('IVoidSettingsService')
 	const settingsState = useSettingsState()
 
-	const options: ChatMode[] = useMemo(() => ['normal', 'gather', 'agent'], [])
+	const options: ChatMode[] = useMemo(() => visibleChatModes, [])
+	const selectedChatMode = options.includes(settingsState.globalSettings.chatMode) ? settingsState.globalSettings.chatMode : 'normal'
+
+	useEffect(() => {
+		if (settingsState.globalSettings.chatMode === selectedChatMode) return
+		voidSettingsService.setGlobalSetting('chatMode', selectedChatMode)
+	}, [settingsState.globalSettings.chatMode, selectedChatMode, voidSettingsService])
 
 	const onChangeOption = useCallback((newVal: ChatMode) => {
 		voidSettingsService.setGlobalSetting('chatMode', newVal)
@@ -275,7 +291,7 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 	return <VoidCustomDropdownBox
 		className={className}
 		options={options}
-		selectedOption={settingsState.globalSettings.chatMode}
+		selectedOption={selectedChatMode}
 		onChangeOption={onChangeOption}
 		getOptionDisplayName={(val) => nameOfChatMode[val]}
 		getOptionDropdownName={(val) => nameOfChatMode[val]}

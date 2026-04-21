@@ -1534,7 +1534,7 @@ Alternatively, place a \`.voidrules\` file in the root of your workspace.
 									<h2 className='text-3xl mb-2'>MCP</h2>
 									<h4 className={`text-void-fg-3 mb-4`}>
 										<ChatMarkdownRender inPTag={true} string={`
-Use Model Context Protocol to provide Agent mode with more tools.
+Use Model Context Protocol to provide Codex mode with more tools.
 							`} chatMessageLocation={undefined} />
 									</h4>
 									<div className='my-2'>
