@@ -8,6 +8,7 @@ import { BrowserFeatures } from './canIUse.js';
 import { IKeyboardEvent, StandardKeyboardEvent } from './keyboardEvent.js';
 import { IMouseEvent, StandardMouseEvent } from './mouseEvent.js';
 import { AbstractIdleValue, IntervalTimer, TimeoutTimer, _runWhenIdle, IdleDeadline } from '../common/async.js';
+import { toArrayBuffer } from '../common/buffer.js';
 import { onUnexpectedError } from '../common/errors.js';
 import * as event from '../common/event.js';
 import dompurify from './dompurify/dompurify.js';
@@ -1530,7 +1531,7 @@ export function triggerDownload(dataOrUri: Uint8Array | URI, name: string): void
 	if (URI.isUri(dataOrUri)) {
 		url = dataOrUri.toString(true);
 	} else {
-		const blob = new Blob([dataOrUri]);
+		const blob = new Blob([toArrayBuffer(dataOrUri)]);
 		url = URL.createObjectURL(blob);
 
 		// Ensure to free the data from DOM eventually

@@ -7,7 +7,6 @@ import { workspace, extensions, Uri, EventEmitter, Disposable } from 'vscode';
 import { Runtime } from './htmlClient';
 import { Utils } from 'vscode-uri';
 
-
 export function getCustomDataSource(runtime: Runtime, toDispose: Disposable[]) {
 	let localExtensionUris = new Set<string>();
 	let externalExtensionUris = new Set<string>();
@@ -21,13 +20,19 @@ export function getCustomDataSource(runtime: Runtime, toDispose: Disposable[]) {
 	toDispose.push(extensions.onDidChange(_ => {
 		const newLocalExtensionUris = new Set<string>();
 		const newExternalExtensionUris = new Set<string>();
+
 		collectInExtensions(newLocalExtensionUris, newExternalExtensionUris);
-		if (hasChanges(newLocalExtensionUris, localExtensionUris) || hasChanges(newExternalExtensionUris, externalExtensionUris)) {
+
+		if (
+			hasChanges(newLocalExtensionUris, localExtensionUris) ||
+			hasChanges(newExternalExtensionUris, externalExtensionUris)
+		) {
 			localExtensionUris = newLocalExtensionUris;
 			externalExtensionUris = newExternalExtensionUris;
 			onChange.fire();
 		}
 	}));
+
 	toDispose.push(workspace.onDidChangeConfiguration(e => {
 		if (e.affectsConfiguration('html.customData')) {
 			workspaceUris.clear();
@@ -52,11 +57,15 @@ export function getCustomDataSource(runtime: Runtime, toDispose: Disposable[]) {
 		},
 		getContent(uriString: string): Thenable<string> {
 			const uri = Uri.parse(uriString);
+
 			if (localExtensionUris.has(uriString)) {
 				return workspace.fs.readFile(uri).then(buffer => {
-					return new runtime.TextDecoder().decode(buffer);
+					const arrayBuffer = new ArrayBuffer(buffer.byteLength);
+					new Uint8Array(arrayBuffer).set(buffer);
+					return new runtime.TextDecoder().decode(arrayBuffer);
 				});
 			}
+
 			return workspace.openTextDocument(uri).then(doc => {
 				return doc.getText();
 			});
@@ -68,22 +77,22 @@ function hasChanges(s1: Set<string>, s2: Set<string>) {
 	if (s1.size !== s2.size) {
 		return true;
 	}
+
 	for (const uri of s1) {
 		if (!s2.has(uri)) {
 			return true;
 		}
 	}
+
 	return false;
 }
 
 function isURI(uriOrPath: string) {
-	return /^(?<scheme>\w[\w\d+.-]*):/.test(uriOrPath);
+	return /^(?:\w[\w\d+.-]*):/.test(uriOrPath);
 }
-
 
 function collectInWorkspaces(workspaceUris: Set<string>): Set<string> {
 	const workspaceFolders = workspace.workspaceFolders;
-
 	const dataPaths = new Set<string>();
 
 	if (!workspaceFolders) {
@@ -110,8 +119,10 @@ function collectInWorkspaces(workspaceUris: Set<string>): Set<string> {
 		const folderUri = workspaceFolders[i].uri;
 		const allHtmlConfig = workspace.getConfiguration('html', folderUri);
 		const customDataInspect = allHtmlConfig.inspect<string[]>('customData');
+
 		if (customDataInspect) {
 			collect(customDataInspect.workspaceFolderValue, folderUri);
+
 			if (i === 0) {
 				if (workspace.workspaceFile) {
 					collect(customDataInspect.workspaceValue, workspace.workspaceFile);
@@ -119,14 +130,15 @@ function collectInWorkspaces(workspaceUris: Set<string>): Set<string> {
 				collect(customDataInspect.globalValue, folderUri);
 			}
 		}
-
 	}
+
 	return dataPaths;
 }
 
 function collectInExtensions(localExtensionUris: Set<string>, externalUris: Set<string>): void {
 	for (const extension of extensions.allAcrossExtensionHosts) {
 		const customData = extension.packageJSON?.contributes?.html?.customData;
+
 		if (Array.isArray(customData)) {
 			for (const uriOrPath of customData) {
 				if (!isURI(uriOrPath)) {
@@ -136,7 +148,6 @@ function collectInExtensions(localExtensionUris: Set<string>, externalUris: Set<
 					// external uri
 					externalUris.add(uriOrPath);
 				}
-
 			}
 		}
 	}

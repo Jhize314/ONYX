@@ -13,6 +13,7 @@ import { imageSize } from 'image-size';
 import { ISizeCalculationResult } from 'image-size/dist/types/interface';
 
 const reUrl = /^https?:/;
+
 export type ImageInfoWithScale = {
 	realWidth: number;
 	realHeight: number;
@@ -21,7 +22,8 @@ export type ImageInfoWithScale = {
 };
 
 /**
- * Get size of given image file. Supports files from local filesystem,
+ * Get size of given image file.
+ * Supports files from local filesystem,
  * as well as URLs
  */
 export function getImageSize(file: string): Promise<ImageInfoWithScale | undefined> {
@@ -35,9 +37,7 @@ export function getImageSize(file: string): Promise<ImageInfoWithScale | undefin
 function getImageSizeFromFile(file: string): Promise<ImageInfoWithScale | undefined> {
 	return new Promise((resolve, reject) => {
 		const isDataUrl = file.match(/^data:.+?;base64,/);
-
 		if (isDataUrl) {
-			// NB should use sync version of `sizeOf()` for buffers
 			try {
 				const data = Buffer.from(file.slice(isDataUrl[0].length), 'base64');
 				return resolve(sizeForFileName('', imageSize(data)));
@@ -57,7 +57,7 @@ function getImageSizeFromFile(file: string): Promise<ImageInfoWithScale | undefi
 }
 
 /**
- * Get image size from given remove URL
+ * Get image size from given remote URL
  */
 function getImageSizeFromURL(urlStr: string): Promise<ImageInfoWithScale | undefined> {
 	return new Promise((resolve, reject) => {
@@ -67,26 +67,43 @@ function getImageSizeFromURL(urlStr: string): Promise<ImageInfoWithScale | undef
 		if (!url.pathname) {
 			return reject('Given url doesnt have pathname property');
 		}
+
 		const urlPath: string = url.pathname;
 
 		getTransport(url, resp => {
-			const chunks: Buffer[] = [];
+			const chunks: Uint8Array[] = [];
 			let bufSize = 0;
 
-			const trySize = (chunks: Buffer[]) => {
+			const mergeChunks = (parts: readonly Uint8Array[], totalSize: number): Uint8Array => {
+				const merged = new Uint8Array(totalSize);
+				let offset = 0;
+
+				for (const part of parts) {
+					merged.set(part, offset);
+					offset += part.length;
+				}
+
+				return merged;
+			};
+
+			const trySize = (parts: Uint8Array[]) => {
 				try {
-					const size: ISizeCalculationResult = imageSize(Buffer.concat(chunks, bufSize));
+					const merged = mergeChunks(parts, bufSize);
+					const size: ISizeCalculationResult = imageSize(Buffer.from(merged));
+
 					resp.removeListener('data', onData);
-					resp.destroy(); // no need to read further
+					resp.destroy();
+
 					resolve(sizeForFileName(path.basename(urlPath), size));
-				} catch (err) {
-					// might not have enough data, skip error
+				} catch {
+					// might not have enough data yet
 				}
 			};
 
 			const onData = (chunk: Buffer) => {
-				bufSize += chunk.length;
-				chunks.push(chunk);
+				const bytes = Uint8Array.from(chunk);
+				bufSize += bytes.length;
+				chunks.push(bytes);
 				trySize(chunks);
 			};
 
@@ -102,8 +119,9 @@ function getImageSizeFromURL(urlStr: string): Promise<ImageInfoWithScale | undef
 }
 
 /**
- * Returns size object for given file name. If file name contains `@Nx` token,
- * the final dimentions will be downscaled by N
+ * Returns size object for given file name.
+ * If file name contains `@Nx` token,
+ * the final dimensions will be downscaled by N
  */
 function sizeForFileName(fileName: string, size?: ISizeCalculationResult): ImageInfoWithScale | undefined {
 	const m = fileName.match(/@(\d+)x\./);

@@ -9,6 +9,7 @@ import { IManagedHoverTooltipMarkdownString } from '../../../../../base/browser/
 import { IHoverDelegate } from '../../../../../base/browser/ui/hover/hoverDelegate.js';
 import { createInstantHoverDelegate } from '../../../../../base/browser/ui/hover/hoverDelegateFactory.js';
 import { Emitter } from '../../../../../base/common/event.js';
+import { toArrayBuffer } from '../../../../../base/common/buffer.js';
 import { Disposable, DisposableStore, IDisposable } from '../../../../../base/common/lifecycle.js';
 import { basename, dirname } from '../../../../../base/common/path.js';
 import { URI } from '../../../../../base/common/uri.js';
@@ -275,7 +276,7 @@ export class ChatAttachmentsContentPart extends Disposable {
 
 	// Helper function to create and replace image
 	private async createImageElements(buffer: ArrayBuffer | Uint8Array, widget: HTMLElement, hoverElement: HTMLElement) {
-		const blob = new Blob([buffer], { type: 'image/png' });
+		const blob = new Blob([buffer instanceof Uint8Array ? toArrayBuffer(buffer) : buffer], { type: 'image/png' });
 		const url = URL.createObjectURL(blob);
 		const img = dom.$('img.chat-attached-context-image', { src: url, alt: '' });
 		const pillImg = dom.$('img.chat-attached-context-pill-image', { src: url, alt: '' });

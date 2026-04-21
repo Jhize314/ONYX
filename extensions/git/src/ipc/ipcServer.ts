@@ -6,6 +6,7 @@
 import { Disposable } from 'vscode';
 import { ITerminalEnvironmentProvider } from '../terminal';
 import { toDisposable } from '../util';
+import { buffersToUint8Arrays, concatUint8Arrays, toUint8Array } from '../bufferUtils';
 import * as path from 'path';
 import * as http from 'http';
 import * as os from 'os';
@@ -34,7 +35,7 @@ export async function createIPCServer(context?: string): Promise<IPCServer> {
 
 	if (!context) {
 		const buffer = await new Promise<Buffer>((c, e) => crypto.randomBytes(20, (err, buf) => err ? e(err) : c(buf)));
-		hash.update(buffer);
+		hash.update(toUint8Array(buffer));
 	} else {
 		hash.update(context);
 	}
@@ -77,7 +78,7 @@ export class IPCServer implements IIPCServer, ITerminalEnvironmentProvider, Disp
 
 	registerHandler(name: string, handler: IIPCHandler): Disposable {
 		this.handlers.set(`/${name}`, handler);
-		return toDisposable(() => this.handlers.delete(name));
+		return toDisposable(() => this.handlers.delete(`/${name}`));
 	}
 
 	private onRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
@@ -96,7 +97,9 @@ export class IPCServer implements IIPCServer, ITerminalEnvironmentProvider, Disp
 		const chunks: Buffer[] = [];
 		req.on('data', d => chunks.push(d));
 		req.on('end', () => {
-			const request = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+			const merged = concatUint8Arrays(buffersToUint8Arrays(chunks));
+			const request = JSON.parse(Buffer.from(merged).toString('utf8'));
+
 			handler.handle(request).then(result => {
 				res.writeHead(200);
 				res.end(JSON.stringify(result));

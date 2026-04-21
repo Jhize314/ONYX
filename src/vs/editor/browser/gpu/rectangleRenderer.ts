@@ -40,7 +40,7 @@ export class RectangleRenderer extends ViewEventHandler {
 	private readonly _shapeBindBuffer: MutableDisposable<IReference<GPUBuffer>> = this._register(new MutableDisposable());
 
 	private _scrollOffsetBindBuffer!: GPUBuffer;
-	private _scrollOffsetValueBuffer!: Float32Array;
+	private _scrollOffsetValueBuffer!: Float32Array<ArrayBuffer>;
 
 	private _initialized: boolean = false;
 

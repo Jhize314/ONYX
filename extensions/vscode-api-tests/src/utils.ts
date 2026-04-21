@@ -16,15 +16,28 @@ export function rndName() {
 export const testFs = new TestFS('fake-fs', true);
 vscode.workspace.registerFileSystemProvider(testFs.scheme, testFs, { isCaseSensitive: testFs.isCaseSensitive });
 
-export async function createRandomFile(contents: string | Uint8Array = '', dir: vscode.Uri | undefined = undefined, ext = ''): Promise<vscode.Uri> {
+export async function createRandomFile(
+	contents: string | Uint8Array = '',
+	dir: vscode.Uri | undefined = undefined,
+	ext = ''
+): Promise<vscode.Uri> {
+
 	let fakeFile: vscode.Uri;
+
 	if (dir) {
 		assert.strictEqual(dir.scheme, testFs.scheme);
 		fakeFile = dir.with({ path: dir.path + '/' + rndName() + ext });
 	} else {
 		fakeFile = vscode.Uri.parse(`${testFs.scheme}:/${rndName() + ext}`);
 	}
-	testFs.writeFile(fakeFile, Buffer.from(contents), { create: true, overwrite: true });
+
+	const data =
+		typeof contents === 'string'
+			? new TextEncoder().encode(contents)
+			: contents;
+
+	testFs.writeFile(fakeFile, data, { create: true, overwrite: true });
+
 	return fakeFile;
 }
 

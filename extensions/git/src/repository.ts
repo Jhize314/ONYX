@@ -30,6 +30,10 @@ const timeout = (millis: number) => new Promise(c => setTimeout(c, millis));
 
 const iconsRootPath = path.join(path.dirname(__dirname), 'resources', 'icons');
 
+function asUint8Array(buffer: Buffer): Uint8Array {
+	return new Uint8Array(buffer);
+}
+
 function getIconUri(iconName: string, theme: string): Uri {
 	return Uri.file(path.join(iconsRootPath, theme, `${iconName}.svg`));
 }
@@ -1974,12 +1978,12 @@ export class Repository implements Disposable {
 		return await this.run(Operation.Show, async () => {
 			try {
 				const content = await this.repository.buffer(ref, filePath);
-				return await workspace.decode(content, Uri.file(filePath));
+				return await workspace.decode(asUint8Array(content), Uri.file(filePath));
 			} catch (err) {
 				if (err.gitErrorCode === GitErrorCodes.WrongCase) {
 					const gitFilePath = await this.repository.getGitFilePath(ref, filePath);
 					const content = await this.repository.buffer(ref, gitFilePath);
-					return await workspace.decode(content, Uri.file(filePath));
+					return await workspace.decode(asUint8Array(content), Uri.file(filePath));
 				}
 
 				throw err;

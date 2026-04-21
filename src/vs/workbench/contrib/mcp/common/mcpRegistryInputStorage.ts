@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Sequencer } from '../../../../base/common/async.js';
-import { decodeBase64, encodeBase64, VSBuffer } from '../../../../base/common/buffer.js';
+import { decodeBase64, encodeBase64, toArrayBuffer, VSBuffer } from '../../../../base/common/buffer.js';
 import { Lazy } from '../../../../base/common/lazy.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { isEmptyObject } from '../../../../base/common/types.js';
@@ -137,9 +137,9 @@ export class McpRegistryInputStorage extends Disposable {
 			const toSeal = JSON.stringify(this._record.value.unsealedSecrets);
 			const iv = crypto.getRandomValues(new Uint8Array(MCP_ENCRYPTION_IV_LENGTH));
 			const encrypted = await crypto.subtle.encrypt(
-				{ name: MCP_ENCRYPTION_KEY_ALGORITHM, iv: iv.buffer },
+				{ name: MCP_ENCRYPTION_KEY_ALGORITHM, iv: toArrayBuffer(iv) },
 				key,
-				new TextEncoder().encode(toSeal).buffer,
+				toArrayBuffer(new TextEncoder().encode(toSeal)),
 			);
 
 			const enc = encodeBase64(VSBuffer.wrap(new Uint8Array(encrypted)));
@@ -163,9 +163,9 @@ export class McpRegistryInputStorage extends Disposable {
 			const encrypted = decodeBase64(this._record.value.secrets.value);
 
 			const decrypted = await crypto.subtle.decrypt(
-				{ name: MCP_ENCRYPTION_KEY_ALGORITHM, iv: iv.buffer },
+				{ name: MCP_ENCRYPTION_KEY_ALGORITHM, iv: toArrayBuffer(iv.buffer) },
 				key,
-				encrypted.buffer,
+				toArrayBuffer(encrypted.buffer),
 			);
 
 			const unsealedSecrets = JSON.parse(new TextDecoder().decode(decrypted));

@@ -13,7 +13,7 @@ import { IExplorerService } from './files.js';
 import { IFilesConfiguration, UndoConfirmLevel, VIEW_ID } from '../common/files.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { Limiter, Promises, RunOnceWorker } from '../../../../base/common/async.js';
-import { newWriteableBufferStream, VSBuffer } from '../../../../base/common/buffer.js';
+import { newWriteableBufferStream, toArrayBuffer, VSBuffer } from '../../../../base/common/buffer.js';
 import { basename, dirname, joinPath } from '../../../../base/common/resources.js';
 import { ResourceFileEdit } from '../../../../editor/browser/services/bulkEditService.js';
 import { ExplorerItem } from '../common/explorerModel.js';
@@ -718,7 +718,7 @@ export class FileDownload {
 
 			listenStream(sourceStream, {
 				onData: data => {
-					target.write(data.buffer);
+					target.write(toArrayBuffer(data.buffer));
 					this.reportProgress(contents.name, contents.size, data.byteLength, operation);
 				},
 				onError: error => {
@@ -736,7 +736,7 @@ export class FileDownload {
 	private async downloadFileUnbufferedBrowser(resource: URI, target: FileSystemWritableFileStream, operation: IDownloadOperation, token: CancellationToken): Promise<void> {
 		const contents = await this.fileService.readFile(resource, undefined, token);
 		if (!token.isCancellationRequested) {
-			target.write(contents.value.buffer);
+			target.write(toArrayBuffer(contents.value.buffer));
 			this.reportProgress(contents.name, contents.size, contents.value.byteLength, operation);
 		}
 

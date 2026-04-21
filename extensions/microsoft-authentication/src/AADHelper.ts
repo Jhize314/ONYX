@@ -141,7 +141,7 @@ export class AzureActiveDirectoryService {
 			};
 			try {
 				await this.refreshToken(session.refreshToken, scopeData, session.id);
-			} catch (e) {
+			} catch (e: any) {
 				// If we aren't connected to the internet, then wait and try to refresh again later.
 				if (e.message === REFRESH_NETWORK_FAILURE) {
 					this._tokens.push({
@@ -240,16 +240,17 @@ export class AzureActiveDirectoryService {
 			tenant: this.getTenantId(scopes),
 		};
 
-		this._logger.trace(`[${scopeData.scopeStr}] Queued getting sessions` + account ? ` for ${account?.label}` : '');
+		this._logger.trace(`[${scopeData.scopeStr}] Queued getting sessions${account ? ` for ${account?.label}` : ''}`);
 		return this._sequencer.queue(modifiedScopesStr, () => this.doGetSessions(scopeData, account));
 	}
 
 	private async doGetSessions(scopeData: IScopeData, account?: vscode.AuthenticationSessionAccountInformation): Promise<vscode.AuthenticationSession[]> {
-		this._logger.info(`[${scopeData.scopeStr}] Getting sessions` + account ? ` for ${account?.label}` : '');
+		this._logger.info(`[${scopeData.scopeStr}] Getting sessions${account ? ` for ${account?.label}` : ''}`);
 
 		const matchingTokens = this._tokens
 			.filter(token => token.scope === scopeData.scopeStr)
 			.filter(token => !account?.label || token.account.label === account.label);
+
 		// If we still don't have a matching token try to get a new token from an existing token by using
 		// the refreshToken. This is documented here:
 		// https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-auth-code-flow#refresh-the-access-token
@@ -284,7 +285,7 @@ export class AzureActiveDirectoryService {
 					const itoken = await this.doRefreshToken(token.refreshToken, scopeData);
 					this._sessionChangeEmitter.fire({ added: [this.convertToSessionSync(itoken)], removed: [], changed: [] });
 					matchingTokens.push(itoken);
-				} catch (err) {
+				} catch (err: any) {
 					this._logger.error(`[${scopeData.scopeStr}] Attempted to get a new session using the existing session with scopes '${token.scope}' but it failed due to: ${err.message ?? err}`);
 				}
 			}
@@ -327,7 +328,7 @@ export class AzureActiveDirectoryService {
 	}
 
 	private async doCreateSession(scopeData: IScopeData, account?: vscode.AuthenticationSessionAccountInformation): Promise<vscode.AuthenticationSession> {
-		this._logger.info(`[${scopeData.scopeStr}] Creating session` + account ? ` for ${account?.label}` : '');
+		this._logger.info(`[${scopeData.scopeStr}] Creating session${account ? ` for ${account?.label}` : ''}`);
 
 		const runsRemote = vscode.env.remoteName !== undefined;
 		const runsServerless = vscode.env.remoteName === undefined && vscode.env.uiKind === vscode.UIKind.Web;
@@ -343,7 +344,7 @@ export class AzureActiveDirectoryService {
 
 			try {
 				return await this.createSessionWithLocalServer(scopeData, account?.label, token);
-			} catch (e) {
+			} catch (e: any) {
 				this._logger.error(`[${scopeData.scopeStr}] Error creating session: ${e}`);
 
 				// If the error was about starting the server, try directly hitting the login endpoint instead
@@ -378,7 +379,7 @@ export class AzureActiveDirectoryService {
 		const server = new LoopbackAuthServer(path.join(__dirname, '../media'), loginUrl);
 		await server.start();
 
-		let codeToExchange;
+		let codeToExchange: string;
 		try {
 			vscode.env.openExternal(vscode.Uri.parse(`http://127.0.0.1:${server.port}/signin?nonce=${encodeURIComponent(server.nonce)}`));
 			const { code } = await raceCancellationAndTimeoutError(server.waitForOAuthResponse(), token, 1000 * 60 * 5); // 5 minutes
@@ -427,7 +428,6 @@ export class AzureActiveDirectoryService {
 		signInUrl.search = qs.toString();
 		const uri = vscode.Uri.parse(signInUrl.toString());
 		vscode.env.openExternal(uri);
-
 
 		const existingNonces = this._pendingNonces.get(scopeData.scopeStr) || [];
 		this._pendingNonces.set(scopeData.scopeStr, [...existingNonces, nonce]);
@@ -515,7 +515,7 @@ export class AzureActiveDirectoryService {
 				this._logger.trace(`[${scopeData.scopeStr}] '${sessionId}' Sending change event for session that was refreshed`);
 				this._sessionChangeEmitter.fire({ added: [], removed: [], changed: [this.convertToSessionSync(refreshedToken)] });
 				this._logger.trace(`[${scopeData.scopeStr}] '${sessionId}' refresh timeout complete`);
-			} catch (e) {
+			} catch (e: any) {
 				if (e.message !== REFRESH_NETWORK_FAILURE) {
 					vscode.window.showErrorMessage(vscode.l10n.t('You have been signed out because reading stored authentication information failed.'));
 					await this.removeSessionById(sessionId);
@@ -537,7 +537,7 @@ export class AzureActiveDirectoryService {
 	//#region convert operations
 
 	private convertToTokenSync(json: ITokenResponse, scopeData: IScopeData, existingId?: string): IToken {
-		let claims = undefined;
+		let claims: any = undefined;
 		this._logger.trace(`[${scopeData.scopeStr}] '${existingId ?? 'new'}' Attempting to parse token response.`);
 
 		try {
@@ -551,7 +551,7 @@ export class AzureActiveDirectoryService {
 			throw e;
 		}
 
-		const id = `${claims.tid}/${(claims.oid ?? (claims.altsecid ?? '' + claims.ipd ?? ''))}`;
+		const id = `${claims.tid}/${claims.oid ?? claims.altsecid ?? String(claims.ipd ?? '')}`;
 		const sessionId = existingId || `${id}/${randomUUID()}`;
 		this._logger.trace(`[${scopeData.scopeStr}] '${sessionId}' Token response parsed successfully.`);
 		return {
@@ -611,7 +611,7 @@ export class AzureActiveDirectoryService {
 			} else {
 				throw new Error();
 			}
-		} catch (e) {
+		} catch {
 			throw new Error('Unavailable due to network problems');
 		}
 	}
@@ -643,7 +643,7 @@ export class AzureActiveDirectoryService {
 			this.setToken(token, scopeData);
 			this._logger.trace(`[${scopeData.scopeStr}] '${token.sessionId}' Token refresh success`);
 			return token;
-		} catch (e) {
+		} catch (e: any) {
 			if (e.message === REFRESH_NETWORK_FAILURE) {
 				// We were unable to refresh because of a network failure (i.e. the user lost internet access).
 				// so set up a timeout to try again later. We only do this if we have a session id to reference later.
@@ -803,7 +803,7 @@ export class AzureActiveDirectoryService {
 		let attempts = 0;
 		while (attempts <= 3) {
 			attempts++;
-			let result;
+			let result: any;
 			let errorMessage: string | undefined;
 			try {
 				result = await fetch(endpoint.toString(), {
@@ -813,7 +813,7 @@ export class AzureActiveDirectoryService {
 					},
 					body: postData
 				});
-			} catch (e) {
+			} catch (e: any) {
 				errorMessage = e.message ?? e;
 			}
 
@@ -932,7 +932,7 @@ export class AzureActiveDirectoryService {
 					this._sessionChangeEmitter.fire({ added: [this.convertToSessionSync(token)], removed: [], changed: [] });
 					this._logger.trace(`[${scopeData.scopeStr}] '${token.sessionId}' Session added in another window added here`);
 					continue;
-				} catch (e) {
+				} catch (e: any) {
 					// Network failures will automatically retry on next poll.
 					if (e.message !== REFRESH_NETWORK_FAILURE) {
 						vscode.window.showErrorMessage(vscode.l10n.t('You have been signed out because reading stored authentication information failed.'));
@@ -969,10 +969,8 @@ export class AzureActiveDirectoryService {
 	}
 
 	private sessionMatchesEndpoint(session: IStoredSession): boolean {
-		// For older sessions with no endpoint set, it can be assumed to be the default endpoint
-		session.endpoint ||= defaultActiveDirectoryEndpointUrl;
-
-		return session.endpoint === this._env.activeDirectoryEndpointUrl;
+		const endpoint = session.endpoint ?? defaultActiveDirectoryEndpointUrl;
+		return endpoint === this._env.activeDirectoryEndpointUrl;
 	}
 
 	//#endregion

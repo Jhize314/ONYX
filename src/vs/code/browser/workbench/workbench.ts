@@ -5,7 +5,7 @@
 
 import { isStandalone } from '../../../base/browser/browser.js';
 import { mainWindow } from '../../../base/browser/window.js';
-import { VSBuffer, decodeBase64, encodeBase64 } from '../../../base/common/buffer.js';
+import { VSBuffer, decodeBase64, encodeBase64, toArrayBuffer } from '../../../base/common/buffer.js';
 import { Emitter } from '../../../base/common/event.js';
 import { Disposable, IDisposable } from '../../../base/common/lifecycle.js';
 import { parse } from '../../../base/common/marshalling.js';
@@ -109,9 +109,9 @@ class ServerKeyedAESCrypto implements ISecretStorageCrypto {
 		// Do the decryption and parse the result as JSON
 		const key = await this.getKey(clientKey.buffer);
 		const decrypted = await mainWindow.crypto.subtle.decrypt(
-			{ name: AESConstants.ALGORITHM as const, iv: iv.buffer },
+			{ name: AESConstants.ALGORITHM as const, iv: toArrayBuffer(iv.buffer) },
 			key,
-			cipherText.buffer
+			toArrayBuffer(cipherText.buffer)
 		);
 
 		return new TextDecoder().decode(new Uint8Array(decrypted));

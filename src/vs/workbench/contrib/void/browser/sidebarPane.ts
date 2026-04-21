@@ -95,7 +95,7 @@ class SidebarViewPane extends ViewPane {
 
 
 
-// ---------- Register viewpane inside the void container ----------
+// ---------- Register viewpane inside the ONYX container ----------
 
 // const voidThemeIcon = Codicon.symbolObject;
 // const voidViewIcon = registerIcon('void-view-icon', voidThemeIcon, localize('voidViewIcon', 'View icon of the Void chat view.'));
@@ -154,7 +154,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VOID_OPEN_SIDEBAR_ACTION_ID,
-			title: 'Open Void Sidebar',
+			title: 'Open ONYX Sidebar',
 		})
 	}
 	run(accessor: ServicesAccessor): void {

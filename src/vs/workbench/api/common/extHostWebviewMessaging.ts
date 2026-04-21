@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { VSBuffer } from '../../../base/common/buffer.js';
+import { toArrayBuffer, VSBuffer } from '../../../base/common/buffer.js';
 import * as extHostProtocol from './extHost.protocol.js';
 
 class ArrayBufferSet {
@@ -37,7 +37,7 @@ export function serializeWebviewMessage(
 			} else if (ArrayBuffer.isView(value)) {
 				const type = getTypedArrayType(value);
 				if (type) {
-					const index = arrayBuffers.add(value.buffer);
+					const index = arrayBuffers.add(toArrayBuffer(new Uint8Array(value.buffer)));
 					return {
 						$$vscode_array_buffer_reference$$: true,
 						index,
