@@ -49,6 +49,10 @@ class VoidModelService extends Disposable implements IVoidModelService {
 			this._modelRefOfURI[uri.fsPath] = editorModelRef;
 		}
 		catch (e) {
+			const message = e instanceof Error ? e.message : String(e);
+			if (uri.path.endsWith('/.voidrules') && message.includes('Unable to resolve nonexistent file')) {
+				return;
+			}
 			console.log('InitializeModel error:', e)
 		}
 	};
