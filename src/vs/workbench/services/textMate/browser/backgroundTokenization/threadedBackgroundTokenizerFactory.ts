@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { canASAR } from '../../../../../amdX.js';
+import { toArrayBuffer } from '../../../../../base/common/buffer.js';
 import { DisposableStore, IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { AppResourcePath, FileAccess, nodeModulesAsarPath, nodeModulesPath } from '../../../../../base/common/network.js';
 import { IObservable } from '../../../../../base/common/observable.js';
@@ -152,7 +153,7 @@ export class ThreadedBackgroundTokenizerFactory implements IDisposable {
 				// However, the worker might still be sending tokens for that model,
 				// so we ignore the event when there is no controller.
 				if (controller) {
-					controller.setTokensAndStates(controllerId, versionId, tokens, lineEndStateDeltas);
+					controller.setTokensAndStates(controllerId, versionId, toArrayBuffer(tokens), lineEndStateDeltas);
 				}
 			},
 			$reportTokenizationTime: (timeMs: number, languageId: string, sourceExtensionId: string | undefined, lineLength: number, isRandomSample: boolean): void => {

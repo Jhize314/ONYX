@@ -13,17 +13,22 @@ export const splitNewLines = () => new StreamSplitter('\n'.charCodeAt(0));
  * Exception: does not include the split character in the output.
  */
 export class StreamSplitter extends Transform {
-	private buffer: Buffer | undefined;
+	private buffer: Uint8Array | undefined;
 
 	constructor(private readonly splitter: number) {
 		super();
 	}
 
 	override _transform(chunk: Buffer, _encoding: string, callback: (error?: Error | null, data?: any) => void): void {
+		const chunkBytes = Uint8Array.from(chunk);
+
 		if (!this.buffer) {
-			this.buffer = chunk;
+			this.buffer = chunkBytes;
 		} else {
-			this.buffer = Buffer.concat([this.buffer, chunk]);
+			const merged = new Uint8Array(this.buffer.length + chunkBytes.length);
+			merged.set(this.buffer, 0);
+			merged.set(chunkBytes, this.buffer.length);
+			this.buffer = merged;
 		}
 
 		let offset = 0;
@@ -45,7 +50,6 @@ export class StreamSplitter extends Transform {
 		if (this.buffer) {
 			this.push(this.buffer);
 		}
-
 		callback();
 	}
 }

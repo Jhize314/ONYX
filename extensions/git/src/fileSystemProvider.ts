@@ -18,6 +18,10 @@ interface CacheRow {
 const THREE_MINUTES = 1000 * 60 * 3;
 const FIVE_MINUTES = 1000 * 60 * 5;
 
+function asUint8Array(buffer: Buffer): Uint8Array {
+	return new Uint8Array(buffer);
+}
+
 function sanitizeRef(ref: string, path: string, submoduleOf: string | undefined, repository: Repository): string {
 	if (ref === '~') {
 		const fileUri = Uri.file(path);
@@ -203,7 +207,7 @@ export class GitFileSystemProvider implements FileSystemProvider {
 		this.cache.set(uri.toString(), cacheValue);
 
 		try {
-			return await repository.buffer(sanitizeRef(ref, path, submoduleOf, repository), path);
+			return asUint8Array(await repository.buffer(sanitizeRef(ref, path, submoduleOf, repository), path));
 		} catch {
 			// Empty tree
 			if (ref === await repository.getEmptyTree()) {

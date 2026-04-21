@@ -5,7 +5,7 @@
 
 import { localize } from '../../../nls.js';
 import { URI } from '../../../base/common/uri.js';
-import { VSBuffer } from '../../../base/common/buffer.js';
+import { toArrayBuffer, VSBuffer } from '../../../base/common/buffer.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../base/common/event.js';
 import { Disposable, DisposableStore, IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
@@ -221,7 +221,7 @@ export class HTMLFileSystemProvider extends Disposable implements IFileSystemPro
 
 			// Write to target overwriting any existing contents
 			const writable = await handle.createWritable();
-			await writable.write(content);
+			await writable.write(toArrayBuffer(content));
 			await writable.close();
 		} catch (error) {
 			throw this.toFileSystemProviderError(error);

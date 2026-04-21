@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as http from 'http';
+import { buffersToUint8Arrays, concatUint8Arrays } from '../bufferUtils';
 
 export class IPCClient {
 
@@ -34,7 +35,10 @@ export class IPCClient {
 
 				const chunks: Buffer[] = [];
 				res.on('data', d => chunks.push(d));
-				res.on('end', () => c(JSON.parse(Buffer.concat(chunks).toString('utf8'))));
+				res.on('end', () => {
+					const merged = concatUint8Arrays(buffersToUint8Arrays(chunks));
+					c(JSON.parse(Buffer.from(merged).toString('utf8')));
+				});
 			});
 
 			req.on('error', err => e(err));

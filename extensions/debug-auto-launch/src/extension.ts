@@ -52,11 +52,23 @@ const SETTINGS_CAUSE_REFRESH = new Set(
 	['autoAttachSmartPattern', SETTING_STATE].map(s => `${SETTING_SECTION}.${s}`),
 );
 
-
 let currentState: Promise<{ context: vscode.ExtensionContext; state: State | null }>;
-let statusItem: vscode.StatusBarItem | undefined; // and there is no status bar item
-let server: Promise<Server | undefined> | undefined; // auto attach server
-let isTemporarilyDisabled = false; // whether the auto attach server is disabled temporarily, reset whenever the state changes
+let statusItem: vscode.StatusBarItem | undefined;
+let server: Promise<Server | undefined> | undefined;
+let isTemporarilyDisabled = false;
+
+function concatUint8Arrays(chunks: readonly Uint8Array[]): Uint8Array {
+	const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+	const result = new Uint8Array(totalLength);
+
+	let offset = 0;
+	for (const chunk of chunks) {
+		result.set(chunk, offset);
+		offset += chunk.length;
+	}
+
+	return result;
+}
 
 export function activate(context: vscode.ExtensionContext): void {
 	currentState = Promise.resolve({ context, state: null });
@@ -67,8 +79,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeConfiguration(e => {
-			// Whenever a setting is changed, disable auto attach, and re-enable
-			// it (if necessary) to refresh variables.
 			if (
 				e.affectsConfiguration(`${SETTING_SECTION}.${SETTING_STATE}`) ||
 				[...SETTINGS_CAUSE_REFRESH].some(setting => e.affectsConfiguration(setting))
@@ -180,7 +190,7 @@ async function toggleAutoAttachSetting(context: vscode.ExtensionContext, scope?:
 		if (result.setTempDisabled) {
 			await destroyAttachServer();
 		} else {
-			await createAttachServer(context); // unsets temp disabled var internally
+			await createAttachServer(context);
 		}
 		updateStatusBar(context, current, false);
 	}
@@ -213,9 +223,6 @@ async function createAttachServer(context: vscode.ExtensionContext) {
 		console.error('[debug-auto-launch] Error creating auto attach server: ', err);
 
 		if (process.platform !== 'win32') {
-			// On macOS, and perhaps some Linux distros, the temporary directory can
-			// sometimes change. If it looks like that's the cause of a listener
-			// error, automatically refresh the auto attach vars.
 			try {
 				await fs.access(dirname(ipcAddress));
 			} catch {
@@ -234,9 +241,7 @@ async function createAttachServer(context: vscode.ExtensionContext) {
 const createServerInner = async (ipcAddress: string) => {
 	try {
 		return await createServerInstance(ipcAddress);
-	} catch (e) {
-		// On unix/linux, the file can 'leak' if the process exits unexpectedly.
-		// If we see this, try to delete the file and then listen again.
+	} catch {
 		await fs.unlink(ipcAddress).catch(() => undefined);
 		return await createServerInstance(ipcAddress);
 	}
@@ -245,24 +250,34 @@ const createServerInner = async (ipcAddress: string) => {
 const createServerInstance = (ipcAddress: string) =>
 	new Promise<Server>((resolve, reject) => {
 		const s = createServer(socket => {
-			const data: Buffer[] = [];
-			socket.on('data', async chunk => {
-				if (chunk[chunk.length - 1] !== 0) {
-					// terminated with NUL byte
-					data.push(chunk);
+			const data: Uint8Array[] = [];
+
+			socket.on('data', async (chunk: Buffer) => {
+				const chunkBytes = Uint8Array.from(chunk);
+
+				if (chunkBytes.length === 0) {
 					return;
 				}
 
-				data.push(chunk.slice(0, -1));
+				if (chunkBytes[chunkBytes.length - 1] !== 0) {
+					data.push(chunkBytes);
+					return;
+				}
+
+				data.push(chunkBytes.subarray(0, chunkBytes.length - 1));
 
 				try {
+					const payloadBytes = concatUint8Arrays(data);
+					const payloadText = new TextDecoder().decode(payloadBytes);
+
 					await vscode.commands.executeCommand(
 						'extension.js-debug.autoAttachToProcess',
-						JSON.parse(Buffer.concat(data).toString()),
+						JSON.parse(payloadText),
 					);
-					socket.write(Buffer.from([0]));
+
+					socket.write(Uint8Array.from([0]));
 				} catch (err) {
-					socket.write(Buffer.from([1]));
+					socket.write(Uint8Array.from([1]));
 					console.error(err);
 				}
 			});
@@ -276,8 +291,10 @@ const createServerInstance = (ipcAddress: string) =>
  */
 async function destroyAttachServer() {
 	const instance = await server;
+	server = undefined;
+
 	if (instance) {
-		await new Promise(r => instance.close(r));
+		await new Promise<void>(resolve => instance.close(() => resolve()));
 	}
 }
 
@@ -320,9 +337,9 @@ function updateStatusBar(context: vscode.ExtensionContext, state: State, busy = 
 
 	if (!statusItem) {
 		statusItem = vscode.window.createStatusBarItem('status.debug.autoAttach', vscode.StatusBarAlignment.Left);
-		statusItem.name = vscode.l10n.t("Debug Auto Attach");
+		statusItem.name = vscode.l10n.t('Debug Auto Attach');
 		statusItem.command = TOGGLE_COMMAND;
-		statusItem.tooltip = vscode.l10n.t("Automatically attach to node.js processes in debug mode");
+		statusItem.tooltip = vscode.l10n.t('Automatically attach to node.js processes in debug mode');
 		context.subscriptions.push(statusItem);
 	}
 
@@ -357,15 +374,8 @@ function updateAutoAttach(newState: State) {
  * is cached such that we can reuse the address of previous activations.
  */
 async function getIpcAddress(context: vscode.ExtensionContext) {
-	// Iff the `cachedData` is present, the js-debug registered environment
-	// variables for this workspace--cachedData is set after successfully
-	// invoking the attachment command.
 	const cachedIpc = context.workspaceState.get<CachedIpcState>(STORAGE_IPC);
 
-	// We invalidate the IPC data if the js-debug path changes, since that
-	// indicates the extension was updated or reinstalled and the
-	// environment variables will have been lost.
-	// todo: make a way in the API to read environment data directly without activating js-debug?
 	const jsDebugPath =
 		vscode.extensions.getExtension('ms-vscode.js-debug-nightly')?.extensionPath ||
 		vscode.extensions.getExtension('ms-vscode.js-debug')?.extensionPath;

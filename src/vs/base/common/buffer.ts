@@ -14,6 +14,16 @@ const indexOfTable = new Lazy(() => new Uint8Array(256));
 let textEncoder: TextEncoder | null;
 let textDecoder: TextDecoder | null;
 
+export function toArrayBuffer(buffer: Uint8Array): ArrayBuffer {
+	if (buffer.byteOffset === 0 && buffer.byteLength === buffer.buffer.byteLength && buffer.buffer instanceof ArrayBuffer) {
+		return buffer.buffer;
+	}
+
+	const result = new ArrayBuffer(buffer.byteLength);
+	new Uint8Array(result).set(buffer);
+	return result;
+}
+
 export class VSBuffer {
 
 	/**

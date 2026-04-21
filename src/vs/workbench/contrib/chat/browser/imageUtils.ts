@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { toArrayBuffer } from '../../../../base/common/buffer.js';
+
 
 /**
  * Resizes an image provided as a UInt8Array string. Resizing is based on Open AI's algorithm for tokenzing images.
@@ -17,7 +19,7 @@ export async function resizeImage(data: Uint8Array | string): Promise<Uint8Array
 		data = convertStringToUInt8Array(data);
 	}
 
-	const blob = new Blob([data]);
+	const blob = new Blob([toArrayBuffer(data)]);
 	const img = new Image();
 	const url = URL.createObjectURL(blob);
 	img.src = url;

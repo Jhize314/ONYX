@@ -131,7 +131,7 @@ export function activate(context: vscode.ExtensionContext) {
 				outputChannel.append(`Delaying startup by ${remaining} seconds (configured by "testresolver.startupDelay").`);
 				while (remaining > 0) {
 					progress.report({ message: `Delayed resolving: Remaining ${remaining}s` });
-					await (sleep(1000));
+					await sleep(1000);
 					remaining--;
 				}
 			}
@@ -142,7 +142,7 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 			const { updateUrl, commit, quality, serverDataFolderName, serverApplicationName, dataFolderName } = getProductConfiguration();
-			const commandArgs = ['--host=127.0.0.1', '--port=0', '--disable-telemetry', '--use-host-proxy', '--accept-server-license-terms'];
+			const commandArgs = ['--host=127.0.0.1', '--port=0', '--disable-telemetry', '--disable-experiments', '--use-host-proxy', '--accept-server-license-terms'];
 			const env = getNewEnv();
 			const remoteDataDir = process.env['TESTRESOLVER_DATA_FOLDER'] || path.join(os.homedir(), `${serverDataFolderName || dataFolderName}-testresolver`);
 			const logsDir = process.env['TESTRESOLVER_LOGS_FOLDER'];
@@ -164,7 +164,9 @@ export function activate(context: vscode.ExtensionContext) {
 				const serverCommandPath = path.join(vscodePath, 'scripts', serverCommand);
 
 				outputChannel.appendLine(`Launching server: "${serverCommandPath}" ${commandArgs.join(' ')}`);
-				const shell = (process.platform === 'win32');
+				const shell = process.platform === 'win32';
+				// Skip prelaunch to avoid redownloading electron while it may be in use
+				env['VSCODE_SKIP_PRELAUNCH'] = '1';
 				extHostProcess = cp.spawn(serverCommandPath, commandArgs, { env, cwd: vscodePath, shell });
 			} else {
 				const extensionToInstall = process.env['TESTRESOLVER_INSTALL_BUILTIN_EXTENSION'];
@@ -182,7 +184,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 				outputChannel.appendLine(`Using server build at ${serverLocation}`);
 				outputChannel.appendLine(`Server arguments ${commandArgs.join(' ')}`);
-				const shell = (process.platform === 'win32');
+				const shell = process.platform === 'win32';
 				extHostProcess = cp.spawn(path.join(serverLocation, 'bin', serverCommand), commandArgs, { env, cwd: serverLocation, shell });
 			}
 			extHostProcess.stdout!.on('data', (data: Buffer) => processOutput(data.toString()));
@@ -209,18 +211,17 @@ export function activate(context: vscode.ExtensionContext) {
 				console.log('Connecting via a managed authority');
 				return Promise.resolve(new vscode.ManagedResolvedAuthority(async () => {
 					const remoteSocket = net.createConnection({ port: serverAddr.port });
-					const dataEmitter = new vscode.EventEmitter<Uint8Array>();
+					const dataEmitter = new vscode.EventEmitter<Uint8Array<ArrayBuffer>>();
 					const closeEmitter = new vscode.EventEmitter<Error | undefined>();
 					const endEmitter = new vscode.EventEmitter<void>();
 
 					await new Promise((res, rej) => {
-						remoteSocket.on('data', d => dataEmitter.fire(d))
+						remoteSocket.on('data', d => dataEmitter.fire(Uint8Array.from(d)))
 							.on('error', err => { rej(); closeEmitter.fire(err); })
 							.on('close', () => endEmitter.fire())
 							.on('end', () => endEmitter.fire())
 							.on('connect', res);
 					});
-
 
 					return {
 						onDidReceiveMessage: dataEmitter.event,
@@ -269,14 +270,14 @@ export function activate(context: vscode.ExtensionContext) {
 
 					proxySocket.on('data', async (data) => {
 						await maybeSlowdown();
-						remoteReady = remoteSocket.write(data);
+						remoteReady = remoteSocket.write(Uint8Array.from(data));
 						if (!remoteReady) {
 							proxySocket.pause();
 						}
 					});
 					remoteSocket.on('data', async (data) => {
 						await maybeSlowdown();
-						localReady = proxySocket.write(data);
+						localReady = proxySocket.write(Uint8Array.from(data));
 						if (!localReady) {
 							remoteSocket.pause();
 						}
@@ -422,7 +423,6 @@ export function activate(context: vscode.ExtensionContext) {
 				localAddressPort: port + 1
 			});
 		}
-
 	}));
 	context.subscriptions.push(vscode.commands.registerCommand('vscode-testresolver.startRemoteServer', async () => {
 		const result = await vscode.window.showInputBox({
@@ -433,12 +433,11 @@ export function activate(context: vscode.ExtensionContext) {
 		if (result) {
 			runHTTPTestServer(Number.parseInt(result));
 		}
-
 	}));
 	vscode.commands.executeCommand('setContext', 'forwardedPortsViewEnabled', true);
 }
 
-type ActionItem = (vscode.MessageItem & { execute: () => void });
+type ActionItem = vscode.MessageItem & { execute: () => void };
 
 function getActions(): ActionItem[] {
 	const actions: ActionItem[] = [];

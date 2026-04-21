@@ -24,7 +24,7 @@ export interface IObjectCollectionBuffer<T extends ObjectCollectionBufferPropert
 	/**
 	 * A view of the underlying buffer. This **should not** be modified externally.
 	 */
-	readonly view: Float32Array;
+	readonly view: Float32Array<ArrayBuffer>;
 	/**
 	 * The size of the used portion of the buffer (in bytes).
 	 */
@@ -80,7 +80,7 @@ export function createObjectCollectionBuffer<T extends ObjectCollectionBufferPro
 
 class ObjectCollectionBuffer<T extends ObjectCollectionBufferPropertySpec[]> extends Disposable implements IObjectCollectionBuffer<T> {
 	buffer: ArrayBuffer;
-	view: Float32Array;
+	view: Float32Array<ArrayBuffer>;
 
 	get bufferUsedSize() {
 		return this.viewUsedSize * Float32Array.BYTES_PER_ELEMENT;
@@ -169,7 +169,7 @@ class ObjectCollectionBufferEntry<T extends ObjectCollectionBufferPropertySpec[]
 	readonly onWillDispose = this._onWillDispose.event;
 
 	constructor(
-		private _view: Float32Array,
+		private _view: Float32Array<ArrayBuffer>,
 		private _propertySpecsMap: Map<string, ObjectCollectionBufferPropertySpec & { offset: number }>,
 		private _dirtyTracker: BufferDirtyTracker,
 		public i: number,

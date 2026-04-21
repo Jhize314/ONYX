@@ -97,13 +97,14 @@ export function eventToPromise<T>(event: Event<T>): Promise<T> {
 }
 
 export function once(fn: (...args: any[]) => any): (...args: any[]) => any {
-	const didRun = false;
+	let didRun = false;
 
 	return (...args) => {
 		if (didRun) {
 			return;
 		}
 
+		didRun = true;
 		return fn(...args);
 	};
 }
@@ -139,12 +140,11 @@ export function groupBy<T>(arr: T[], fn: (el: T) => string): { [key: string]: T[
 	}, Object.create(null));
 }
 
-
 export async function mkdirp(path: string, mode?: number): Promise<boolean> {
 	const mkdir = async () => {
 		try {
 			await fs.mkdir(path, mode);
-		} catch (err) {
+		} catch (err: any) {
 			if (err.code === 'EEXIST') {
 				const stat = await fs.stat(path);
 
@@ -159,14 +159,13 @@ export async function mkdirp(path: string, mode?: number): Promise<boolean> {
 		}
 	};
 
-	// is root?
 	if (path === dirname(path)) {
 		return true;
 	}
 
 	try {
 		await mkdir();
-	} catch (err) {
+	} catch (err: any) {
 		if (err.code !== 'ENOENT') {
 			throw err;
 		}
@@ -227,16 +226,17 @@ export async function grep(filename: string, pattern: RegExp): Promise<boolean> 
 export function readBytes(stream: Readable, bytes: number): Promise<Buffer> {
 	return new Promise<Buffer>((complete, error) => {
 		let done = false;
-		const buffer = Buffer.allocUnsafe(bytes);
+		const target = new Uint8Array(bytes);
 		let bytesRead = 0;
 
 		stream.on('data', (data: Buffer) => {
 			const bytesToRead = Math.min(bytes - bytesRead, data.length);
-			data.copy(buffer, bytesRead, 0, bytesToRead);
+			const source = new Uint8Array(data.buffer as ArrayBuffer, data.byteOffset, bytesToRead);
+			target.set(source, bytesRead);
 			bytesRead += bytesToRead;
 
 			if (bytesRead === bytes) {
-				(stream as any).destroy(); // Will trigger the close event eventually
+				(stream as any).destroy();
 			}
 		});
 
@@ -250,7 +250,7 @@ export function readBytes(stream: Readable, bytes: number): Promise<Buffer> {
 		stream.on('close', () => {
 			if (!done) {
 				done = true;
-				complete(buffer.slice(0, bytesRead));
+				complete(Buffer.from(target.subarray(0, bytesRead)));
 			}
 		});
 	});
@@ -296,8 +296,6 @@ export function truncate(value: string, maxLength = 20): string {
 }
 
 function normalizePath(path: string): string {
-	// Windows & Mac are currently being handled
-	// as case insensitive file systems in VS Code.
 	if (isWindows || isMacintosh) {
 		return path.toLowerCase();
 	}
@@ -321,17 +319,7 @@ export function pathEquals(a: string, b: string): boolean {
 	return normalizePath(a) === normalizePath(b);
 }
 
-/**
- * Given the `repository.root` compute the relative path while trying to preserve
- * the casing of the resource URI. The `repository.root` segment of the path can
- * have a casing mismatch if the folder/workspace is being opened with incorrect
- * casing which is why we attempt to use substring() before relative().
- */
 export function relativePath(from: string, to: string): string {
-	// There are cases in which the `from` path may contain a trailing separator at
-	// the end (ex: "C:\", "\\server\folder\" (Windows) or "/" (Linux/macOS)) which
-	// is by design as documented in https://github.com/nodejs/node/issues/1765. If
-	// the trailing separator is missing, we add it.
 	if (from.charAt(from.length - 1) !== sep) {
 		from += sep;
 	}
@@ -340,7 +328,6 @@ export function relativePath(from: string, to: string): string {
 		return to.substring(from.length);
 	}
 
-	// Fallback to `path.relative`
 	return relative(from, to);
 }
 
@@ -366,23 +353,14 @@ export function* splitInChunks(array: string[], maxChunkLength: number): Iterabl
 	}
 }
 
-/**
- * @returns whether the provided parameter is defined.
- */
 export function isDefined<T>(arg: T | null | undefined): arg is T {
 	return !isUndefinedOrNull(arg);
 }
 
-/**
- * @returns whether the provided parameter is undefined or null.
- */
 export function isUndefinedOrNull(obj: unknown): obj is undefined | null {
 	return (isUndefined(obj) || obj === null);
 }
 
-/**
- * @returns whether the provided parameter is undefined.
- */
 export function isUndefined(obj: unknown): obj is undefined {
 	return (typeof obj === 'undefined');
 }
@@ -554,21 +532,16 @@ export function deltaHistoryItemRefs(before: SourceControlHistoryItemRef[], afte
 
 		if (result === 0) {
 			if (beforeElement.revision !== afterElement.revision) {
-				// modified
 				modified.push(afterElement);
 			}
 
 			beforeIdx += 1;
 			afterIdx += 1;
 		} else if (result < 0) {
-			// beforeElement is smaller -> before element removed
 			removed.push(beforeElement);
-
 			beforeIdx += 1;
-		} else if (result > 0) {
-			// beforeElement is greater -> after element added
+		} else {
 			added.push(afterElement);
-
 			afterIdx += 1;
 		}
 	}
@@ -583,15 +556,6 @@ const week = day * 7;
 const month = day * 30;
 const year = day * 365;
 
-/**
- * Create a l10n.td difference of the time between now and the specified date.
- * @param date The date to generate the difference from.
- * @param appendAgoLabel Whether to append the " ago" to the end.
- * @param useFullTimeWords Whether to use full words (eg. seconds) instead of
- * shortened (eg. secs).
- * @param disallowNow Whether to disallow the string "now" when the difference
- * is less than 30 seconds.
- */
 export function fromNow(date: number | Date, appendAgoLabel?: boolean, useFullTimeWords?: boolean, disallowNow?: boolean): string {
 	if (typeof date !== 'number') {
 		date = date.getTime();
@@ -612,23 +576,15 @@ export function fromNow(date: number | Date, appendAgoLabel?: boolean, useFullTi
 
 		if (appendAgoLabel) {
 			if (value === 1) {
-				return useFullTimeWords
-					? l10n.t('{0} second ago', value)
-					: l10n.t('{0} sec ago', value);
+				return useFullTimeWords ? l10n.t('{0} second ago', value) : l10n.t('{0} sec ago', value);
 			} else {
-				return useFullTimeWords
-					? l10n.t('{0} seconds ago', value)
-					: l10n.t('{0} secs ago', value);
+				return useFullTimeWords ? l10n.t('{0} seconds ago', value) : l10n.t('{0} secs ago', value);
 			}
 		} else {
 			if (value === 1) {
-				return useFullTimeWords
-					? l10n.t('{0} second', value)
-					: l10n.t('{0} sec', value);
+				return useFullTimeWords ? l10n.t('{0} second', value) : l10n.t('{0} sec', value);
 			} else {
-				return useFullTimeWords
-					? l10n.t('{0} seconds', value)
-					: l10n.t('{0} secs', value);
+				return useFullTimeWords ? l10n.t('{0} seconds', value) : l10n.t('{0} secs', value);
 			}
 		}
 	}
@@ -637,23 +593,15 @@ export function fromNow(date: number | Date, appendAgoLabel?: boolean, useFullTi
 		value = Math.floor(seconds / minute);
 		if (appendAgoLabel) {
 			if (value === 1) {
-				return useFullTimeWords
-					? l10n.t('{0} minute ago', value)
-					: l10n.t('{0} min ago', value);
+				return useFullTimeWords ? l10n.t('{0} minute ago', value) : l10n.t('{0} min ago', value);
 			} else {
-				return useFullTimeWords
-					? l10n.t('{0} minutes ago', value)
-					: l10n.t('{0} mins ago', value);
+				return useFullTimeWords ? l10n.t('{0} minutes ago', value) : l10n.t('{0} mins ago', value);
 			}
 		} else {
 			if (value === 1) {
-				return useFullTimeWords
-					? l10n.t('{0} minute', value)
-					: l10n.t('{0} min', value);
+				return useFullTimeWords ? l10n.t('{0} minute', value) : l10n.t('{0} min', value);
 			} else {
-				return useFullTimeWords
-					? l10n.t('{0} minutes', value)
-					: l10n.t('{0} mins', value);
+				return useFullTimeWords ? l10n.t('{0} minutes', value) : l10n.t('{0} mins', value);
 			}
 		}
 	}
@@ -662,23 +610,15 @@ export function fromNow(date: number | Date, appendAgoLabel?: boolean, useFullTi
 		value = Math.floor(seconds / hour);
 		if (appendAgoLabel) {
 			if (value === 1) {
-				return useFullTimeWords
-					? l10n.t('{0} hour ago', value)
-					: l10n.t('{0} hr ago', value);
+				return useFullTimeWords ? l10n.t('{0} hour ago', value) : l10n.t('{0} hr ago', value);
 			} else {
-				return useFullTimeWords
-					? l10n.t('{0} hours ago', value)
-					: l10n.t('{0} hrs ago', value);
+				return useFullTimeWords ? l10n.t('{0} hours ago', value) : l10n.t('{0} hrs ago', value);
 			}
 		} else {
 			if (value === 1) {
-				return useFullTimeWords
-					? l10n.t('{0} hour', value)
-					: l10n.t('{0} hr', value);
+				return useFullTimeWords ? l10n.t('{0} hour', value) : l10n.t('{0} hr', value);
 			} else {
-				return useFullTimeWords
-					? l10n.t('{0} hours', value)
-					: l10n.t('{0} hrs', value);
+				return useFullTimeWords ? l10n.t('{0} hours', value) : l10n.t('{0} hrs', value);
 			}
 		}
 	}
@@ -686,13 +626,9 @@ export function fromNow(date: number | Date, appendAgoLabel?: boolean, useFullTi
 	if (seconds < week) {
 		value = Math.floor(seconds / day);
 		if (appendAgoLabel) {
-			return value === 1
-				? l10n.t('{0} day ago', value)
-				: l10n.t('{0} days ago', value);
+			return value === 1 ? l10n.t('{0} day ago', value) : l10n.t('{0} days ago', value);
 		} else {
-			return value === 1
-				? l10n.t('{0} day', value)
-				: l10n.t('{0} days', value);
+			return value === 1 ? l10n.t('{0} day', value) : l10n.t('{0} days', value);
 		}
 	}
 
@@ -700,23 +636,15 @@ export function fromNow(date: number | Date, appendAgoLabel?: boolean, useFullTi
 		value = Math.floor(seconds / week);
 		if (appendAgoLabel) {
 			if (value === 1) {
-				return useFullTimeWords
-					? l10n.t('{0} week ago', value)
-					: l10n.t('{0} wk ago', value);
+				return useFullTimeWords ? l10n.t('{0} week ago', value) : l10n.t('{0} wk ago', value);
 			} else {
-				return useFullTimeWords
-					? l10n.t('{0} weeks ago', value)
-					: l10n.t('{0} wks ago', value);
+				return useFullTimeWords ? l10n.t('{0} weeks ago', value) : l10n.t('{0} wks ago', value);
 			}
 		} else {
 			if (value === 1) {
-				return useFullTimeWords
-					? l10n.t('{0} week', value)
-					: l10n.t('{0} wk', value);
+				return useFullTimeWords ? l10n.t('{0} week', value) : l10n.t('{0} wk', value);
 			} else {
-				return useFullTimeWords
-					? l10n.t('{0} weeks', value)
-					: l10n.t('{0} wks', value);
+				return useFullTimeWords ? l10n.t('{0} weeks', value) : l10n.t('{0} wks', value);
 			}
 		}
 	}
@@ -725,23 +653,15 @@ export function fromNow(date: number | Date, appendAgoLabel?: boolean, useFullTi
 		value = Math.floor(seconds / month);
 		if (appendAgoLabel) {
 			if (value === 1) {
-				return useFullTimeWords
-					? l10n.t('{0} month ago', value)
-					: l10n.t('{0} mo ago', value);
+				return useFullTimeWords ? l10n.t('{0} month ago', value) : l10n.t('{0} mo ago', value);
 			} else {
-				return useFullTimeWords
-					? l10n.t('{0} months ago', value)
-					: l10n.t('{0} mos ago', value);
+				return useFullTimeWords ? l10n.t('{0} months ago', value) : l10n.t('{0} mos ago', value);
 			}
 		} else {
 			if (value === 1) {
-				return useFullTimeWords
-					? l10n.t('{0} month', value)
-					: l10n.t('{0} mo', value);
+				return useFullTimeWords ? l10n.t('{0} month', value) : l10n.t('{0} mo', value);
 			} else {
-				return useFullTimeWords
-					? l10n.t('{0} months', value)
-					: l10n.t('{0} mos', value);
+				return useFullTimeWords ? l10n.t('{0} months', value) : l10n.t('{0} mos', value);
 			}
 		}
 	}
@@ -749,23 +669,15 @@ export function fromNow(date: number | Date, appendAgoLabel?: boolean, useFullTi
 	value = Math.floor(seconds / year);
 	if (appendAgoLabel) {
 		if (value === 1) {
-			return useFullTimeWords
-				? l10n.t('{0} year ago', value)
-				: l10n.t('{0} yr ago', value);
+			return useFullTimeWords ? l10n.t('{0} year ago', value) : l10n.t('{0} yr ago', value);
 		} else {
-			return useFullTimeWords
-				? l10n.t('{0} years ago', value)
-				: l10n.t('{0} yrs ago', value);
+			return useFullTimeWords ? l10n.t('{0} years ago', value) : l10n.t('{0} yrs ago', value);
 		}
 	} else {
 		if (value === 1) {
-			return useFullTimeWords
-				? l10n.t('{0} year', value)
-				: l10n.t('{0} yr', value);
+			return useFullTimeWords ? l10n.t('{0} year', value) : l10n.t('{0} yr', value);
 		} else {
-			return useFullTimeWords
-				? l10n.t('{0} years', value)
-				: l10n.t('{0} yrs', value);
+			return useFullTimeWords ? l10n.t('{0} years', value) : l10n.t('{0} yrs', value);
 		}
 	}
 }

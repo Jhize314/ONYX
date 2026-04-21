@@ -101,6 +101,16 @@ async function webviewPreloads(ctx: PreloadContext) {
 	const textEncoder = new TextEncoder();
 	const textDecoder = new TextDecoder();
 
+	function toArrayBuffer(buffer: Uint8Array): ArrayBuffer {
+		if (buffer.byteOffset === 0 && buffer.byteLength === buffer.buffer.byteLength && buffer.buffer instanceof ArrayBuffer) {
+			return buffer.buffer;
+		}
+
+		const result = new ArrayBuffer(buffer.byteLength);
+		new Uint8Array(result).set(buffer);
+		return result;
+	}
+
 	function promiseWithResolvers<T>(): { promise: Promise<T>; resolve: (value: T | PromiseLike<T>) => void; reject: (err?: any) => void } {
 		let resolve: (value: T | PromiseLike<T>) => void;
 		let reject: (reason?: any) => void;
@@ -1069,7 +1079,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 				},
 
 				blob(): Blob {
-					return new Blob([valueBytes], { type: this.mime });
+					return new Blob([toArrayBuffer(valueBytes)], { type: this.mime });
 				},
 
 				get _allOutputItems() {
@@ -2519,7 +2529,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 				},
 
 				blob(): Blob {
-					return new Blob([this.data()], { type: this.mime });
+					return new Blob([toArrayBuffer(this.data())], { type: this.mime });
 				},
 
 				_allOutputItems: [{

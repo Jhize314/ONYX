@@ -79,7 +79,7 @@ export class FullFileRenderStrategy extends BaseRenderStrategy {
 	private _finalRenderedLine: number = 0;
 
 	private _scrollOffsetBindBuffer: GPUBuffer;
-	private _scrollOffsetValueBuffer: Float32Array;
+	private _scrollOffsetValueBuffer: Float32Array<ArrayBuffer>;
 	private _scrollInitialized: boolean = false;
 
 	private readonly _queuedBufferUpdates: [QueuedBufferEvent[], QueuedBufferEvent[]] = [[], []];

@@ -158,8 +158,8 @@
 
 		// Correct runtime-relative path for this workbench file:
 		// out/vs/code/electron-sandbox/workbench/workbench.js
-		// -> ../../resources/app/ONYXlogo.png resolves to out/vs/code/resources/app/ONYXlogo.png
-		const logoPath = '../../resources/app/ONYXlogo.png';
+		// -> ../../../../../resources/app/ONYXlogo.png resolves to resources/app/ONYXlogo.png
+		const logoPath = '../../../../../resources/app/ONYXlogo.png';
 		console.log('[ONYX splash] trying logo:', logoPath);
 		logo.src = logoPath;
 

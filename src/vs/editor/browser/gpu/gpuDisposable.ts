@@ -25,7 +25,7 @@ export namespace GPULifecycle {
 		}
 	}
 
-	export function createBuffer(device: GPUDevice, descriptor: GPUBufferDescriptor, initialValues?: Float32Array | (() => Float32Array)): IReference<GPUBuffer> {
+	export function createBuffer(device: GPUDevice, descriptor: GPUBufferDescriptor, initialValues?: Float32Array<ArrayBuffer> | (() => Float32Array<ArrayBuffer>)): IReference<GPUBuffer> {
 		const buffer = device.createBuffer(descriptor);
 		if (initialValues) {
 			device.queue.writeBuffer(buffer, 0, isFunction(initialValues) ? initialValues() : initialValues);
