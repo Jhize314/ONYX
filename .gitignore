@@ -28,3 +28,13 @@ product.overrides.json
 .tool-versions
 src/vs/workbench/contrib/void/browser/react/out/**
 src/vs/workbench/contrib/void/browser/react/src2/**
+
+# ONYX local runtime and workspace-agent state
+/.onyx/
+/.openclaw/
+/AGENTS.md
+/HEARTBEAT.md
+/IDENTITY.md
+/SOUL.md
+/TOOLS.md
+/USER.md
