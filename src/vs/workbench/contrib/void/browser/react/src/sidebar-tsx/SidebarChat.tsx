@@ -35,6 +35,7 @@ import { ToolApprovalTypeSwitch } from '../void-settings-tsx/Settings.js';
 
 import { persistentTerminalNameOfId } from '../../../terminalToolService.js';
 import { removeMCPToolNamePrefix } from '../../../../common/mcpServiceTypes.js';
+import { resolveOnyxChatMode } from '../../../../common/onyxIntelligenceCycle.js';
 
 
 
@@ -253,7 +254,7 @@ const nameOfChatMode = {
 	'analyze': 'Analyze',
 	'report': 'Report',
 	'normal': 'Chat',
-	'agent': 'Agent',
+	'agent': 'Execute',
 	'gather': 'Gather',
 } satisfies Record<ChatMode, string>
 
@@ -263,14 +264,41 @@ const detailOfChatMode = {
 	'analyze': 'Reasons over gathered context',
 	'report': 'Summarizes findings and next steps',
 	'normal': 'Normal chat',
-	'agent': 'Legacy full-tool agent mode',
+	'agent': 'Workspace-scoped file and terminal control',
 	'gather': 'Reads files, but can\'t edit',
 } satisfies Record<ChatMode, string>
 
-const visibleChatModes: ChatMode[] = ['normal', 'plan', 'collect', 'analyze', 'report']
+const visibleChatModes: ChatMode[] = ['normal', 'plan', 'collect', 'analyze', 'report', 'agent']
 
 
-const ChatModeDropdown = ({ className }: { className: string }) => {
+const ExecuteWorkspaceRootBadge = () => {
+	const accessor = useAccessor()
+	const settingsState = useSettingsState()
+	useActiveURI()
+
+	if (settingsState.globalSettings.chatMode !== 'agent') return null
+
+	const workspaceControlService = accessor.get('IOnyxWorkspaceControlService')
+	let fullPath = 'No workspace'
+
+	try {
+		const root = workspaceControlService.getActiveScope().workspaceRoot
+		fullPath = root.fsPath || root.path || root.toString()
+	} catch { }
+
+	const parts = fullPath.split(/[\\/]/).filter(Boolean)
+	const label = parts[parts.length - 1] || fullPath
+
+	return <span
+		className='text-xs text-void-fg-3 border border-void-border-2 rounded py-0.5 px-1 max-w-[12rem] truncate'
+		title={fullPath}
+	>
+		Root: {label}
+	</span>
+}
+
+
+const ChatModeDropdown = ({ className, draftPrompt = '' }: { className: string, draftPrompt?: string }) => {
 	const accessor = useAccessor()
 
 	const voidSettingsService = accessor.get('IVoidSettingsService')
@@ -278,6 +306,10 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 
 	const options: ChatMode[] = useMemo(() => visibleChatModes, [])
 	const selectedChatMode = options.includes(settingsState.globalSettings.chatMode) ? settingsState.globalSettings.chatMode : 'normal'
+	const modeResolution = useMemo(() => resolveOnyxChatMode({
+		selectedChatMode,
+		userMessage: draftPrompt,
+	}), [selectedChatMode, draftPrompt])
 
 	useEffect(() => {
 		if (settingsState.globalSettings.chatMode === selectedChatMode) return
@@ -293,7 +325,7 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 		options={options}
 		selectedOption={selectedChatMode}
 		onChangeOption={onChangeOption}
-		getOptionDisplayName={(val) => nameOfChatMode[val]}
+		getOptionDisplayName={(val) => val === selectedChatMode && modeResolution.wasInferred ? `${nameOfChatMode[selectedChatMode]} -> ${nameOfChatMode[modeResolution.activeChatMode]}` : nameOfChatMode[val]}
 		getOptionDropdownName={(val) => nameOfChatMode[val]}
 		getOptionDropdownDetail={(val) => detailOfChatMode[val]}
 		getOptionsEqual={(a, b) => a === b}
@@ -322,6 +354,7 @@ interface VoidChatAreaProps {
 	showSelections?: boolean;
 	showProspectiveSelections?: boolean;
 	loadingIcon?: React.ReactNode;
+	draftPrompt?: string;
 
 	selections?: StagingSelectionItem[]
 	setSelections?: (s: StagingSelectionItem[]) => void
@@ -352,6 +385,7 @@ export const VoidChatArea: React.FC<VoidChatAreaProps> = ({
 	setSelections,
 	featureName,
 	loadingIcon,
+	draftPrompt,
 }) => {
 	return (
 		<div
@@ -403,7 +437,8 @@ export const VoidChatArea: React.FC<VoidChatAreaProps> = ({
 						<ReasoningOptionSlider featureName={featureName} />
 
 						<div className='flex items-center flex-wrap gap-x-2 gap-y-1 text-nowrap '>
-							{featureName === 'Chat' && <ChatModeDropdown className='text-xs text-void-fg-3 bg-void-bg-1 border border-void-border-2 rounded py-0.5 px-1' />}
+							{featureName === 'Chat' && <ChatModeDropdown draftPrompt={draftPrompt} className='text-xs text-void-fg-3 bg-void-bg-1 border border-void-border-2 rounded py-0.5 px-1' />}
+							{featureName === 'Chat' && <ExecuteWorkspaceRootBadge />}
 							<ModelDropdown featureName={featureName} className='text-xs text-void-fg-3 bg-void-bg-1 rounded' />
 						</div>
 					</div>
@@ -1105,6 +1140,11 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 	if (mode === 'display') {
 		chatbubbleContents = <>
 			<SelectedFiles type='past' messageIdx={messageIdx} selections={chatMessage.selections || []} />
+			{chatMessage.onyxMode?.wasInferred && (
+				<span className='mb-1 w-fit rounded border border-void-border-3 px-1.5 py-0.5 text-[10px] leading-none text-void-fg-3'>
+					{`${nameOfChatMode[chatMessage.onyxMode.selectedChatMode]} -> ${nameOfChatMode[chatMessage.onyxMode.activeChatMode]}`}
+				</span>
+			)}
 			<span className='px-0.5'>{chatMessage.displayContent}</span>
 		</>
 	}
@@ -1586,7 +1626,7 @@ const toolNameToDesc = (toolName: BuiltinToolName, _toolParams: BuiltinToolCallP
 	}
 }
 
-const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) => {
+const ToolRequestAcceptRejectButtons = ({ toolName, approvalReason }: { toolName: ToolName, approvalReason?: string }) => {
 	const accessor = useAccessor()
 	const chatThreadsService = accessor.get('IChatThreadService')
 	const metricsService = accessor.get('IMetricsService')
@@ -1646,10 +1686,15 @@ const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) =>
 		<ToolApprovalTypeSwitch size='xs' approvalType={approvalType} desc={`Auto-approve ${approvalType}`} />
 	</div> : null
 
-	return <div className="flex gap-2 mx-0.5 items-center">
-		{approveButton}
-		{cancelButton}
-		{approvalToggle}
+	return <div className="mx-0.5 flex flex-col gap-1">
+		{approvalReason ? <div className='w-fit rounded border border-void-border-3 px-2 py-1 text-xs text-void-fg-3'>
+			Auto-approve bypassed: {approvalReason}
+		</div> : null}
+		<div className="flex gap-2 items-center">
+			{approveButton}
+			{cancelButton}
+			{approvalToggle}
+		</div>
 	</div>
 }
 
@@ -1866,7 +1911,11 @@ const CommandTool = ({ toolMessage, type, threadId }: { threadId: string } & ({
 	}
 	else if (toolMessage.type === 'running_now') {
 		if (type === 'run_command')
-			componentParams.children = <div ref={divRef} className='relative h-[300px] text-sm' />
+			componentParams.children = <ToolChildrenWrapper className='whitespace-pre text-nowrap overflow-auto text-sm'>
+				<div ref={divRef} className='!select-text cursor-auto'>
+					<BlockCode initValue={`$ ${toolMessage.params.command}\nRunning...`} language='shellscript' />
+				</div>
+			</ToolChildrenWrapper>
 	}
 	else if (toolMessage.type === 'rejected' || toolMessage.type === 'tool_request') {
 	}
@@ -2571,7 +2620,7 @@ const _ChatBubble = ({ threadId, chatMessage, currCheckpointIdx, isCommitted, me
 				</div>
 				{chatMessage.type === 'tool_request' ?
 					<div className={`${isCheckpointGhost ? 'opacity-50 pointer-events-none' : ''}`}>
-						<ToolRequestAcceptRejectButtons toolName={chatMessage.name} />
+						<ToolRequestAcceptRejectButtons toolName={chatMessage.name} approvalReason={chatMessage.approvalReason} />
 					</div> : null}
 			</>
 		return null
@@ -2928,6 +2977,7 @@ export const SidebarChat = () => {
 	// state of current message
 	const initVal = ''
 	const [instructionsAreEmpty, setInstructionsAreEmpty] = useState(!initVal)
+	const [draftPrompt, setDraftPrompt] = useState(initVal)
 
 	const isDisabled = instructionsAreEmpty || !!isFeatureNameDisabled('Chat', settingsState)
 
@@ -2951,6 +3001,7 @@ export const SidebarChat = () => {
 
 		setSelections([]) // clear staging
 		textAreaFnsRef.current?.setValue('')
+		setDraftPrompt('')
 		textAreaRef.current?.focus() // focus input after submit
 
 	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, settingsState])
@@ -3070,7 +3121,8 @@ export const SidebarChat = () => {
 
 	const onChangeText = useCallback((newStr: string) => {
 		setInstructionsAreEmpty(!newStr)
-	}, [setInstructionsAreEmpty])
+		setDraftPrompt(newStr)
+	}, [setInstructionsAreEmpty, setDraftPrompt])
 	const onKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
 			onSubmit()
@@ -3089,6 +3141,7 @@ export const SidebarChat = () => {
 		// showProspectiveSelections={previousMessagesHTML.length === 0}
 		selections={selections}
 		setSelections={setSelections}
+		draftPrompt={draftPrompt}
 		onClickAnywhere={() => { textAreaRef.current?.focus() }}
 	>
 		<VoidInputBox2

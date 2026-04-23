@@ -16,6 +16,11 @@ export const defaultProviderSettings = {
 	openAI: {
 		apiKey: '',
 	},
+	openClaw: {
+		endpoint: 'http://127.0.0.1:18789',
+		apiKey: '',
+		headersJSON: '{}',
+	},
 	deepseek: {
 		apiKey: '',
 	},
@@ -83,6 +88,10 @@ export const defaultModelsOfProvider = {
 		// 'o1-mini',
 		// 'gpt-4o',
 		// 'gpt-4o-mini',
+	],
+	openClaw: [
+		'onyx/chatgpt-5.4',
+		'onyx/default',
 	],
 	anthropic: [ // https://docs.anthropic.com/en/docs/about-claude/models
 		'claude-opus-4-0',
@@ -734,6 +743,57 @@ const openAISettings: VoidStaticProviderInfo = {
 		if (lower.includes('o3-mini')) { fallbackName = 'o3-mini' }
 		if (lower.includes('gpt-4o')) { fallbackName = 'gpt-4o' }
 		if (fallbackName) return { modelName: fallbackName, recognizedModelName: fallbackName, ...openAIModelOptions[fallbackName] }
+		return null
+	},
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+	},
+}
+
+// ---------------- ONYX RUNTIME ----------------
+const onyxRuntimeBaseModelOptions = {
+	contextWindow: 272_000,
+	reservedOutputTokenSpace: 32_768,
+	cost: { input: 0, output: 0 },
+	downloadable: false,
+	supportsFIM: false,
+	specialToolFormat: 'openai-style',
+	supportsSystemMessage: 'system-role',
+	reasoningCapabilities: false,
+} as const satisfies VoidStaticModelInfo
+
+const openClawModelOptions = {
+	'openclaw/default': onyxRuntimeBaseModelOptions,
+	'onyx/chatgpt-5.4': {
+		contextWindow: 272_000,
+		reservedOutputTokenSpace: 128_000,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh'], default: 'medium' } },
+	},
+} as const satisfies { [s: string]: VoidStaticModelInfo }
+
+const openClawSettings: VoidStaticProviderInfo = {
+	modelOptions: openClawModelOptions,
+	modelOptionsFallback: (modelName) => {
+		const lower = modelName.toLowerCase()
+		if (lower === 'onyx/chatgpt-5.4' || lower === 'chatgpt-5.4' || lower === 'gpt-5.4' || lower === 'openai-codex/gpt-5.4' || lower === 'codex/gpt-5.4') {
+			return {
+				modelName: 'onyx/chatgpt-5.4',
+				recognizedModelName: 'onyx/chatgpt-5.4',
+				...openClawModelOptions['onyx/chatgpt-5.4'],
+			}
+		}
+		if (lower === 'onyx' || lower === 'onyx/default' || lower === 'openclaw' || lower.startsWith('openclaw/') || lower.startsWith('openclaw:') || lower.startsWith('agent:')) {
+			return {
+				modelName: 'openclaw/default',
+				recognizedModelName: 'onyx/default',
+				...openClawModelOptions['openclaw/default'],
+			}
+		}
 		return null
 	},
 	providerReasoningIOSettings: {
@@ -1465,6 +1525,7 @@ const openRouterSettings: VoidStaticProviderInfo = {
 
 const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProviderInfo } = {
 	openAI: openAISettings,
+	openClaw: openClawSettings,
 	anthropic: anthropicSettings,
 	xAI: xAISettings,
 	gemini: geminiSettings,

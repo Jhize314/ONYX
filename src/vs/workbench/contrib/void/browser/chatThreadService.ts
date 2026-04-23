@@ -39,6 +39,7 @@ import { IDirectoryStrService } from '../common/directoryStrService.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IMCPService } from '../common/mcpService.js';
 import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
+import { resolveOnyxChatMode } from '../common/onyxIntelligenceCycle.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { OnyxPlanWorkspaceService } from '../../../../../onyx/plans/onyxPlanWorkspaceService.js';
 import { shouldCreatePlanWorkspaceFromPrompt, shouldOpenExistingPlanFromPrompt } from '../../../../../onyx/plans/onyxPlanIntent.js';
@@ -594,6 +595,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			const approvalType = isBuiltInTool ? approvalTypeOfBuiltinToolName[toolName] : 'MCP tools';
 			if (approvalType) {
 				const autoApprove = this._settingsService.state.globalSettings.autoApprove[approvalType];
+				const explicitApprovalReason = isBuiltInTool ? this._toolsService.getExplicitApprovalReason(toolName, toolParams as any) : null;
 				this._addMessageToThread(threadId, {
 					role: 'tool',
 					type: 'tool_request',
@@ -601,11 +603,12 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					result: null,
 					name: toolName,
 					params: toolParams,
+					approvalReason: explicitApprovalReason ?? undefined,
 					id: toolId,
 					rawParams: opts.unvalidatedToolParams,
 					mcpServerName
 				});
-				if (!autoApprove) {
+				if (!autoApprove || explicitApprovalReason) {
 					return { awaitingUserApproval: true };
 				}
 			}
@@ -726,7 +729,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		let interruptedWhenIdle = false;
 		const idleInterruptor = Promise.resolve(() => { interruptedWhenIdle = true; });
 
-		const { chatMode } = this._settingsService.state.globalSettings;
+		const { chatMode: selectedChatMode } = this._settingsService.state.globalSettings;
 		const { overridesOfModel } = this._settingsService.state;
 
 		let nMessagesSent = 0;
@@ -754,6 +757,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor });
 
 			const chatMessages = this.state.allThreads[threadId]?.messages ?? [];
+			const lastUserMessage = findLast(chatMessages, m => m.role === 'user');
+			const modeResolution = lastUserMessage?.role === 'user' && lastUserMessage.onyxMode
+				? lastUserMessage.onyxMode
+				: resolveOnyxChatMode({
+					selectedChatMode,
+					userMessage: lastUserMessage?.role === 'user' ? lastUserMessage.displayContent : '',
+				});
+			const chatMode = modeResolution.activeChatMode;
 			const { messages, separateSystemMessage } = await this._convertToLLMMessagesService.prepareLLMChatMessages({
 				chatMessages,
 				modelSelection,
@@ -787,7 +798,17 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					modelSelection,
 					modelSelectionOptions,
 					overridesOfModel,
-					logging: { loggingName: `Chat - ${chatMode}`, loggingExtras: { threadId, nMessagesSent, chatMode } },
+					logging: {
+						loggingName: `Chat - ${chatMode}`,
+						loggingExtras: {
+							threadId,
+							nMessagesSent,
+							selectedChatMode,
+							activeChatMode: chatMode,
+							activePhase: modeResolution.activePhase,
+							wasInferred: modeResolution.wasInferred,
+						}
+					},
 					separateSystemMessage,
 					onText: ({ fullText, fullReasoning, toolCall }) => {
 						this._setStreamState(threadId, {
@@ -804,7 +825,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					},
 					onAbort: () => {
 						resMessageIsDonePromise({ type: 'llmAborted' });
-						this._metricsService.capture('Agent Loop Done (Aborted)', { nMessagesSent, chatMode });
+						this._metricsService.capture('Agent Loop Done (Aborted)', { nMessagesSent, selectedChatMode, activeChatMode: chatMode, activePhase: modeResolution.activePhase, wasInferred: modeResolution.wasInferred });
 					},
 				});
 
@@ -905,7 +926,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 		this._setStreamState(threadId, { isRunning: isRunningWhenEnd });
 		if (!isRunningWhenEnd) this._addUserCheckpoint({ threadId });
-		this._metricsService.capture('Agent Loop Done', { nMessagesSent, chatMode });
+		this._metricsService.capture('Agent Loop Done', { nMessagesSent, selectedChatMode });
 	}
 
 	private _addCheckpoint(threadId: string, checkpoint: CheckpointEntry) {
@@ -1182,6 +1203,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 		const instructions = userMessage;
 		const currSelns: StagingSelectionItem[] = _chatSelections ?? thread.state.stagingSelections;
+		const modeResolution = resolveOnyxChatMode({
+			selectedChatMode: this._settingsService.state.globalSettings.chatMode,
+			userMessage: instructions,
+		});
 
 		const userMessageContent = await chat_userMessageContent(instructions, currSelns, {
 			directoryStrService: this._directoryStringService,
@@ -1193,6 +1218,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			content: userMessageContent,
 			displayContent: instructions,
 			selections: currSelns,
+			onyxMode: modeResolution,
 			state: defaultMessageState
 		};
 

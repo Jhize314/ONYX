@@ -3,6 +3,7 @@ export interface OnyxGeneratedPlan {
 	objective: string;
 	context: string[];
 	requirements: string[];
+	collectionRequirements: string[];
 	phases: Array<{
 		name: string;
 		steps: string[];
@@ -64,16 +65,24 @@ export function generateOnyxPlanFromPrompt(prompt: string): OnyxGeneratedPlan {
 		`Clarify the scope and intended outcome for ${subject}.`,
 		`Identify the relevant system surfaces, files, services, and dependencies.`,
 		`Define implementation boundaries, constraints, and success criteria.`,
-		`Prepare the work so it can later move into collection, analysis, and reporting modes.`
+		`Prepare the work so it can move through Plan, Collect, Analyze, and Report as an intelligence cycle.`
+	];
+
+	const collectionRequirements = [
+		`Determine which files, services, commands, APIs, docs, or examples must be collected for ${subject}.`,
+		`Identify provenance requirements so collected evidence can be traced back to concrete sources.`,
+		`Define what evidence would be sufficient to analyze options and make a recommendation.`,
+		`List gaps or uncertainties that should cause Report mode to feed back into a revised plan.`
 	];
 
 	const phases = [
 		{
-			name: 'Requirements',
+			name: 'Plan',
 			steps: [
 				`Define the purpose and success criteria for ${subject}.`,
 				`Identify assumptions, constraints, and non-goals.`,
-				`Determine which parts of ONYX or the current workspace are affected.`
+				`Determine which parts of ONYX or the current workspace are affected.`,
+				`Write the collection requirements that Collect mode must satisfy.`
 			]
 		},
 		{
@@ -81,7 +90,7 @@ export function generateOnyxPlanFromPrompt(prompt: string): OnyxGeneratedPlan {
 			steps: [
 				`Locate files, services, commands, and UI surfaces related to ${subject}.`,
 				`Gather references, prior implementations, and current system behavior.`,
-				`Record the evidence needed before making implementation decisions.`
+				`Record evidence with provenance and map it back to the collection requirements.`
 			]
 		},
 		{
@@ -89,7 +98,8 @@ export function generateOnyxPlanFromPrompt(prompt: string): OnyxGeneratedPlan {
 			steps: [
 				`Evaluate the collected material for architecture impact and execution risk.`,
 				`Compare implementation options and identify the simplest viable approach.`,
-				`Decide how ${subject} should integrate into ONYX without breaking current behavior.`
+				`Decide how ${subject} should integrate into ONYX without breaking current behavior.`,
+				`Identify any missing evidence that should return the cycle to Collect or Plan.`
 			]
 		},
 		{
@@ -105,7 +115,8 @@ export function generateOnyxPlanFromPrompt(prompt: string): OnyxGeneratedPlan {
 			steps: [
 				`Summarize what changed, what was validated, and what remains open.`,
 				`Document artifacts created during the work on ${subject}.`,
-				`Define the next recommended step after the initial implementation.`
+				`Define the next recommended step after the initial implementation.`,
+				`Feed unresolved gaps, changed assumptions, or stronger options back into Plan mode.`
 			]
 		}
 	];
@@ -119,7 +130,7 @@ export function generateOnyxPlanFromPrompt(prompt: string): OnyxGeneratedPlan {
 	const deliverables = [
 		`A structured implementation plan for ${subject}.`,
 		`A persisted ONYX markdown artifact representing the current plan state.`,
-		`A foundation for future Requirements, Collect, Analyze, and Report modes.`
+		`A foundation for recursive Plan, Collect, Analyze, and Report modes.`
 	];
 
 	return {
@@ -127,6 +138,7 @@ export function generateOnyxPlanFromPrompt(prompt: string): OnyxGeneratedPlan {
 		objective,
 		context,
 		requirements,
+		collectionRequirements,
 		phases,
 		risks,
 		deliverables
@@ -138,6 +150,7 @@ export function renderOnyxPlanMarkdown(prompt: string): string {
 
 	const contextSection = plan.context.map(item => `- ${item}`).join('\n');
 	const requirementsSection = plan.requirements.map(item => `- ${item}`).join('\n');
+	const collectionRequirementsSection = plan.collectionRequirements.map(item => `- ${item}`).join('\n');
 	const risksSection = plan.risks.map(item => `- ${item}`).join('\n');
 	const deliverablesSection = plan.deliverables.map(item => `- ${item}`).join('\n');
 
@@ -156,6 +169,9 @@ ${contextSection}
 
 ## Requirements
 ${requirementsSection}
+
+## Collection Requirements
+${collectionRequirementsSection}
 
 ${phasesSection}
 

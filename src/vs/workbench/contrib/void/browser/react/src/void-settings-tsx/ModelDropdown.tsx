@@ -24,6 +24,8 @@ const optionsEqual = (m1: ModelOption[], m2: ModelOption[]) => {
 
 const displayNameOfModelOption = (option: ModelOption) => {
 	if (option.selection.providerName === 'openAI' && option.selection.modelName === 'gpt-5.2-codex') return 'Codex'
+	if (option.selection.providerName === 'openClaw' && option.selection.modelName === 'onyx/chatgpt-5.4') return 'ChatGPT 5.4'
+	if (option.selection.providerName === 'openClaw' && (option.selection.modelName === 'onyx/default' || option.selection.modelName === 'openclaw/default')) return 'ONYX Runtime'
 	return option.selection.modelName
 }
 

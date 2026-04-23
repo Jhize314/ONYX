@@ -34,8 +34,12 @@ import './voidUpdateActions.js'
 import './convertToLLMMessageWorkbenchContrib.js'
 
 // tools
+import './onyxWorkspaceControlService.js'
+import './onyxCommandRunnerService.js'
+import './onyxCodexStatusService.js'
 import './toolsService.js'
 import './terminalToolService.js'
+import './onyxRuntimeActions.js'
 
 // register Thread History
 import './chatThreadService.js'

@@ -5,6 +5,7 @@
 
 import { URI } from '../../../../base/common/uri.js';
 import { VoidFileSnapshot } from './editCodeServiceTypes.js';
+import type { OnyxModeResolution } from './onyxIntelligenceCycle.js';
 import { AnthropicReasoning, RawToolParamsObj } from './sendLLMMessageTypes.js';
 import { ToolCallParams, ToolName, ToolResult } from './toolsServiceTypes.js';
 
@@ -18,7 +19,7 @@ export type ToolMessage<T extends ToolName> = {
 		// in order of events:
 		| { type: 'invalid_params', result: null, name: T, }
 
-		| { type: 'tool_request', result: null, name: T, params: ToolCallParams<T>, }  // params were validated, awaiting user
+		| { type: 'tool_request', result: null, name: T, params: ToolCallParams<T>, approvalReason?: string, }  // params were validated, awaiting user
 
 		| { type: 'running_now', result: null, name: T, params: ToolCallParams<T>, }
 
@@ -53,6 +54,7 @@ export type ChatMessage =
 		content: string; // content displayed to the LLM on future calls - allowed to be '', will be replaced with (empty)
 		displayContent: string; // content displayed to user  - allowed to be '', will be ignored
 		selections: StagingSelectionItem[] | null; // the user's selection
+		onyxMode?: OnyxModeResolution;
 		state: {
 			stagingSelections: StagingSelectionItem[];
 			isBeingEdited: boolean;

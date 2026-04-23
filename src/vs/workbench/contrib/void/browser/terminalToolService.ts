@@ -24,7 +24,7 @@ export interface ITerminalToolService {
 	listPersistentTerminalIds(): string[];
 	runCommand(command: string, opts:
 		| { type: 'persistent', persistentTerminalId: string }
-		| { type: 'temporary', cwd: string | null, terminalId: string }
+		| { type: 'temporary', cwd: URI, terminalId: string }
 		// | { type: 'apply', terminalId: string }
 	): Promise<{ interrupt: () => void; resPromise: Promise<{ result: string, resolveReason: TerminalResolveReason }> }>;
 
@@ -33,7 +33,7 @@ export interface ITerminalToolService {
 
 	readTerminal(terminalId: string): Promise<string>
 
-	createPersistentTerminal(opts: { cwd: string | null }): Promise<string>
+	createPersistentTerminal(opts: { cwd: URI }): Promise<string>
 	killPersistentTerminal(terminalId: string): Promise<void>
 
 	getPersistentTerminal(terminalId: string): ITerminalInstance | undefined
@@ -122,10 +122,10 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 	}
 
 
-	private async _createTerminal(props: { cwd: string | null, config: ICreateTerminalOptions['config'], hidden?: boolean }) {
+	private async _createTerminal(props: { cwd: URI, config: ICreateTerminalOptions['config'], hidden?: boolean }) {
 		const { cwd: override_cwd, config, hidden } = props;
 
-		const cwd: URI | string | undefined = (override_cwd ?? undefined) ?? this.workspaceContextService.getWorkspace().folders[0]?.uri;
+		const cwd: URI | string | undefined = override_cwd ?? this.workspaceContextService.getWorkspace().folders[0]?.uri;
 
 		const options: ICreateTerminalOptions = {
 			cwd,

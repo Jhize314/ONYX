@@ -40,6 +40,9 @@ import { IMetricsService } from '../../../../../../../workbench/contrib/void/com
 import { URI } from '../../../../../../../base/common/uri.js'
 import { IChatThreadService, ThreadsState, ThreadStreamState } from '../../../chatThreadService.js'
 import { ITerminalToolService } from '../../../terminalToolService.js'
+import { IOnyxWorkspaceControlService } from '../../../onyxWorkspaceControlService.js'
+import { IOnyxCommandRunnerService } from '../../../../common/onyxCommandRunnerServiceTypes.js'
+import { IOnyxCodexStatusService } from '../../../../common/onyxCodexStatusServiceTypes.js'
 import { ILanguageService } from '../../../../../../../editor/common/languages/language.js'
 import { IVoidModelService } from '../../../../common/voidModelService.js'
 import { IWorkspaceContextService } from '../../../../../../../platform/workspace/common/workspace.js'
@@ -215,6 +218,9 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 		IPathService: accessor.get(IPathService),
 		IMetricsService: accessor.get(IMetricsService),
 		ITerminalToolService: accessor.get(ITerminalToolService),
+		IOnyxWorkspaceControlService: accessor.get(IOnyxWorkspaceControlService),
+		IOnyxCommandRunnerService: accessor.get(IOnyxCommandRunnerService),
+		IOnyxCodexStatusService: accessor.get(IOnyxCodexStatusService),
 		ILanguageService: accessor.get(ILanguageService),
 		IVoidModelService: accessor.get(IVoidModelService),
 		IWorkspaceContextService: accessor.get(IWorkspaceContextService),

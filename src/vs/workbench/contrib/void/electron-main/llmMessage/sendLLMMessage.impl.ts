@@ -59,6 +59,41 @@ const invalidApiKeyMessage = (providerName: ProviderName) => `Invalid ${displayI
 // ------------ OPENAI-COMPATIBLE (HELPERS) ------------
 
 
+const isCodexViaOnyxRuntimeSelection = ({ providerName, modelName }: Pick<InternalCommonMessageParams, 'providerName' | 'modelName'>) => {
+	return providerName === 'openAI' && modelName === 'gpt-5.2-codex'
+}
+
+const onyxRuntimeApiModelName = (providerName: ProviderName, modelName: string) => {
+	if (providerName !== 'openClaw') {
+		return modelName
+	}
+	if (modelName === 'onyx/chatgpt-5.4' || modelName === 'openai-codex/gpt-5.4') {
+		return 'openclaw/default'
+	}
+	if (modelName === 'onyx/default') {
+		return 'openclaw/default'
+	}
+	return modelName
+}
+
+const routeCodexViaOnyxRuntime = <T extends InternalCommonMessageParams>(params: T): T => {
+	if (!isCodexViaOnyxRuntimeSelection(params)) {
+		return params
+	}
+	return {
+		...params,
+		providerName: 'openClaw',
+		modelName: 'openclaw/main',
+	}
+}
+
+const runtimeProgressMessages = [
+	'Connecting to ONYX Runtime...',
+	'ONYX Runtime is working in the workspace...',
+	'Waiting for Codex progress from the runtime...',
+	'Still working; final output will appear when the runtime sends it...',
+]
+
 
 const parseHeadersJSON = (s: string | undefined): Record<string, string | null | undefined> | undefined => {
 	if (!s) return undefined
@@ -69,6 +104,12 @@ const parseHeadersJSON = (s: string | undefined): Record<string, string | null |
 	}
 }
 
+const ensureV1BaseURL = (endpoint: string) => {
+	const trimmed = endpoint.replace(/\/+$/, '')
+	if (trimmed.endsWith('/v1')) return trimmed
+	return `${trimmed}/v1`
+}
+
 const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includeInPayload }: { settingsOfProvider: SettingsOfProvider, providerName: ProviderName, includeInPayload?: { [s: string]: any } }) => {
 	const commonPayloadOpts: ClientOptions = {
 		dangerouslyAllowBrowser: true,
@@ -77,6 +118,19 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 	if (providerName === 'openAI') {
 		const thisConfig = settingsOfProvider[providerName]
 		return new OpenAI({ apiKey: thisConfig.apiKey, ...commonPayloadOpts })
+	}
+	else if (providerName === 'openClaw') {
+		const thisConfig = settingsOfProvider[providerName]
+		const headers = parseHeadersJSON(thisConfig.headersJSON)
+		return new OpenAI({
+			baseURL: ensureV1BaseURL(thisConfig.endpoint),
+			apiKey: thisConfig.apiKey || 'openclaw-local',
+			defaultHeaders: {
+				'x-openclaw-message-channel': 'onyx',
+				...headers,
+			},
+			...commonPayloadOpts,
+		})
 	}
 	else if (providerName === 'ollama') {
 		const thisConfig = settingsOfProvider[providerName]
@@ -302,7 +356,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 		(openai as AzureOpenAI).deploymentName = modelName;
 	}
 	const options: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
-		model: modelName,
+		model: onyxRuntimeApiModelName(providerName, modelName),
 		messages: messages as any,
 		stream: true,
 		...nativeToolsObj,
@@ -332,6 +386,40 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 	let toolName = ''
 	let toolId = ''
 	let toolParamsStr = ''
+	let runtimeProgressIndex = 0
+	let runtimeProgressText = ''
+	let runtimeProgressTimeout: ReturnType<typeof setTimeout> | undefined
+	let runtimeProgressTimer: ReturnType<typeof setInterval> | undefined
+	const shouldShowRuntimeProgress = providerName === 'openClaw'
+	const publishRuntimeProgress = () => {
+		if (!shouldShowRuntimeProgress || fullTextSoFar || fullReasoningSoFar || toolName) {
+			return
+		}
+		const message = runtimeProgressMessages[Math.min(runtimeProgressIndex, runtimeProgressMessages.length - 1)]
+		runtimeProgressIndex += 1
+		runtimeProgressText = `ONYX Runtime update: ${message}`
+		onText({
+			fullText: '',
+			fullReasoning: runtimeProgressText,
+		})
+	}
+	const stopRuntimeProgress = () => {
+		if (runtimeProgressTimeout) {
+			clearTimeout(runtimeProgressTimeout)
+			runtimeProgressTimeout = undefined
+		}
+		if (runtimeProgressTimer) {
+			clearInterval(runtimeProgressTimer)
+			runtimeProgressTimer = undefined
+		}
+		runtimeProgressText = ''
+	}
+	if (shouldShowRuntimeProgress) {
+		runtimeProgressTimeout = setTimeout(() => {
+			publishRuntimeProgress()
+			runtimeProgressTimer = setInterval(publishRuntimeProgress, 8000)
+		}, 1200)
+	}
 
 	openai.chat.completions
 		.create(options)
@@ -361,15 +449,19 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 					newReasoning = (chunk.choices[0]?.delta?.[nameOfReasoningFieldInDelta] || '') + ''
 					fullReasoningSoFar += newReasoning
 				}
+				if (newText || newReasoning || toolName) {
+					stopRuntimeProgress()
+				}
 
 				// call onText
 				onText({
 					fullText: fullTextSoFar,
-					fullReasoning: fullReasoningSoFar,
+					fullReasoning: fullReasoningSoFar || (!fullTextSoFar && !toolName ? runtimeProgressText : ''),
 					toolCall: !toolName ? undefined : { name: toolName, rawParams: {}, isDone: false, doneParams: [], id: toolId },
 				})
 
 			}
+			stopRuntimeProgress()
 			// on final
 			if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
 				onError({ message: 'Void: Response from model was empty.', fullError: null })
@@ -382,6 +474,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 		})
 		// when error/fail - this catches errors of both .create() and .then(for await)
 		.catch(error => {
+			stopRuntimeProgress()
 			if (error instanceof OpenAI.APIError && error.status === 401) { onError({ message: invalidApiKeyMessage(providerName), fullError: error }); }
 			else { onError({ message: error + '', fullError: error }); }
 		})
@@ -861,9 +954,14 @@ export const sendLLMMessageToProviderImplementation = {
 		list: null,
 	},
 	openAI: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
+		sendChat: (params) => _sendOpenAICompatibleChat(routeCodexViaOnyxRuntime(params)),
 		sendFIM: null,
 		list: null,
+	},
+	openClaw: {
+		sendChat: (params) => _sendOpenAICompatibleChat(params),
+		sendFIM: null,
+		list: (params) => _openaiCompatibleList(params),
 	},
 	xAI: {
 		sendChat: (params) => _sendOpenAICompatibleChat(params),
