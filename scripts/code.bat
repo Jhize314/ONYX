@@ -30,9 +30,9 @@ for %%A in (%*) do (
 	)
 )
 
-:: Launch Code
-
-%CODE% . %DISABLE_TEST_EXTENSION% %*
+:: Launch ONYX against this workspace. Do not restore old empty/dev windows here,
+:: because workspace control requires the visible window to have a folder open.
+%CODE% . --no-restore-windows %DISABLE_TEST_EXTENSION% %*
 goto end
 
 :builtin

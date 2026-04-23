@@ -511,7 +511,7 @@ const VoidOnboardingContent = () => {
 
 	const providerNamesOfWantToUseOption: { [wantToUseOption in WantToUseOption]: ProviderName[] } = {
 		smart: ['anthropic', 'openAI', 'gemini', 'openRouter'],
-		private: ['ollama', 'vLLM', 'openAICompatible', 'lmStudio'],
+		private: ['openClaw', 'ollama', 'vLLM', 'openAICompatible', 'lmStudio'],
 		cheap: ['gemini', 'deepseek', 'openRouter', 'ollama', 'vLLM'],
 		all: providerNames,
 	}
@@ -562,7 +562,7 @@ const VoidOnboardingContent = () => {
 
 	// can be md
 	const detailedDescOfWantToUseOption: { [wantToUseOption in WantToUseOption]: string } = {
-		smart: "Most intelligent and best for agent mode.",
+		smart: "Most intelligent and best for Codex mode.",
 		private: "Private-hosted so your data never leaves your computer or network. [Email us](mailto:founders@voideditor.com) for help setting up at your company.",
 		cheap: "Use great deals like Gemini 2.5 Pro, or self-host a model with Ollama or vLLM for free.",
 		all: "",

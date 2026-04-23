@@ -16,6 +16,11 @@ export const defaultProviderSettings = {
 	openAI: {
 		apiKey: '',
 	},
+	openClaw: {
+		endpoint: 'http://127.0.0.1:18789',
+		apiKey: '',
+		headersJSON: '{}',
+	},
 	deepseek: {
 		apiKey: '',
 	},
@@ -73,6 +78,7 @@ export const defaultProviderSettings = {
 
 export const defaultModelsOfProvider = {
 	openAI: [ // https://platform.openai.com/docs/models/gp
+		'gpt-5.2-codex',
 		'gpt-4.1',
 		'gpt-4.1-mini',
 		'gpt-4.1-nano',
@@ -82,6 +88,10 @@ export const defaultModelsOfProvider = {
 		// 'o1-mini',
 		// 'gpt-4o',
 		// 'gpt-4o-mini',
+	],
+	openClaw: [
+		'onyx/chatgpt-5.4',
+		'onyx/default',
 	],
 	anthropic: [ // https://docs.anthropic.com/en/docs/about-claude/models
 		'claude-opus-4-0',
@@ -603,6 +613,16 @@ const anthropicSettings: VoidStaticProviderInfo = {
 
 // ---------------- OPENAI ----------------
 const openAIModelOptions = { // https://platform.openai.com/docs/pricing
+	'gpt-5.2-codex': {
+		contextWindow: 400_000,
+		reservedOutputTokenSpace: 128_000,
+		cost: { input: 1.75, output: 14.00, cache_read: 0.175 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh'], default: 'medium' } },
+	},
 	'o3': {
 		contextWindow: 1_047_576,
 		reservedOutputTokenSpace: 32_768,
@@ -718,10 +738,62 @@ const openAISettings: VoidStaticProviderInfo = {
 	modelOptionsFallback: (modelName) => {
 		const lower = modelName.toLowerCase()
 		let fallbackName: keyof typeof openAIModelOptions | null = null
+		if (lower.includes('codex')) { fallbackName = 'gpt-5.2-codex' }
 		if (lower.includes('o1')) { fallbackName = 'o1' }
 		if (lower.includes('o3-mini')) { fallbackName = 'o3-mini' }
 		if (lower.includes('gpt-4o')) { fallbackName = 'gpt-4o' }
 		if (fallbackName) return { modelName: fallbackName, recognizedModelName: fallbackName, ...openAIModelOptions[fallbackName] }
+		return null
+	},
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+	},
+}
+
+// ---------------- ONYX RUNTIME ----------------
+const onyxRuntimeBaseModelOptions = {
+	contextWindow: 272_000,
+	reservedOutputTokenSpace: 32_768,
+	cost: { input: 0, output: 0 },
+	downloadable: false,
+	supportsFIM: false,
+	specialToolFormat: 'openai-style',
+	supportsSystemMessage: 'system-role',
+	reasoningCapabilities: false,
+} as const satisfies VoidStaticModelInfo
+
+const openClawModelOptions = {
+	'openclaw/default': onyxRuntimeBaseModelOptions,
+	'onyx/chatgpt-5.4': {
+		contextWindow: 272_000,
+		reservedOutputTokenSpace: 128_000,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh'], default: 'medium' } },
+	},
+} as const satisfies { [s: string]: VoidStaticModelInfo }
+
+const openClawSettings: VoidStaticProviderInfo = {
+	modelOptions: openClawModelOptions,
+	modelOptionsFallback: (modelName) => {
+		const lower = modelName.toLowerCase()
+		if (lower === 'onyx/chatgpt-5.4' || lower === 'chatgpt-5.4' || lower === 'gpt-5.4' || lower === 'openai-codex/gpt-5.4' || lower === 'codex/gpt-5.4') {
+			return {
+				modelName: 'onyx/chatgpt-5.4',
+				recognizedModelName: 'onyx/chatgpt-5.4',
+				...openClawModelOptions['onyx/chatgpt-5.4'],
+			}
+		}
+		if (lower === 'onyx' || lower === 'onyx/default' || lower === 'openclaw' || lower.startsWith('openclaw/') || lower.startsWith('openclaw:') || lower.startsWith('agent:')) {
+			return {
+				modelName: 'openclaw/default',
+				recognizedModelName: 'onyx/default',
+				...openClawModelOptions['openclaw/default'],
+			}
+		}
 		return null
 	},
 	providerReasoningIOSettings: {
@@ -1453,6 +1525,7 @@ const openRouterSettings: VoidStaticProviderInfo = {
 
 const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProviderInfo } = {
 	openAI: openAISettings,
+	openClaw: openClawSettings,
 	anthropic: anthropicSettings,
 	xAI: xAISettings,
 	gemini: geminiSettings,

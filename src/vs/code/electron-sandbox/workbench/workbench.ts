@@ -104,8 +104,8 @@
 			}
 
 			#onyx-splash-logo {
-				width: min(420px, 62vw);
-				max-width: 62vw;
+				width: min(525px, 77.5vw);
+				max-width: 77.5vw;
 				height: auto;
 				display: block;
 				filter: drop-shadow(0 0 24px rgba(0, 0, 0, 0.55));

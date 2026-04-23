@@ -119,6 +119,70 @@ export const modelFilterOfFeatureName: {
 	'SCM': { filter: o => true, emptyMessage: null, },
 }
 
+const ONYX_MODEL_ROUTING_VERSION = 1
+const ONYX_CHATGPT_54_SELECTION = { providerName: 'openClaw', modelName: 'onyx/chatgpt-5.4' } satisfies ModelSelection
+const CODEX_CONTROL_SELECTION = { providerName: 'openAI', modelName: 'gpt-5.2-codex' } satisfies ModelSelection
+const ONYX_RUNTIME_DEFAULT_SELECTION = { providerName: 'openClaw', modelName: 'onyx/default' } satisfies ModelSelection
+
+const modelOptionExists = (state: VoidSettingsState, selection: ModelSelection) => {
+	return state._modelOptions.some(option => modelSelectionsEqual(option.selection, selection))
+}
+
+const shouldMoveFeatureToCodex = (selection: ModelSelection | null) => {
+	return selection === null
+		|| modelSelectionsEqual(selection, ONYX_CHATGPT_54_SELECTION)
+		|| modelSelectionsEqual(selection, ONYX_RUNTIME_DEFAULT_SELECTION)
+}
+
+const _withOnyxDefaultModelRouting = (state: VoidSettingsState): VoidSettingsState => {
+	if ((state.globalSettings.onyxModelRoutingVersion ?? 0) >= ONYX_MODEL_ROUTING_VERSION) {
+		return state
+	}
+
+	const hasChatGpt54 = modelOptionExists(state, ONYX_CHATGPT_54_SELECTION)
+	const hasCodexControl = modelOptionExists(state, CODEX_CONTROL_SELECTION)
+	let modelSelectionOfFeature = state.modelSelectionOfFeature
+	let globalSettings = {
+		...state.globalSettings,
+		onyxModelRoutingVersion: ONYX_MODEL_ROUTING_VERSION,
+	}
+
+	if (hasChatGpt54) {
+		const currentChat = modelSelectionOfFeature['Chat']
+		if (
+			currentChat === null
+			|| modelSelectionsEqual(currentChat, CODEX_CONTROL_SELECTION)
+			|| modelSelectionsEqual(currentChat, ONYX_RUNTIME_DEFAULT_SELECTION)
+		) {
+			modelSelectionOfFeature = {
+				...modelSelectionOfFeature,
+				'Chat': ONYX_CHATGPT_54_SELECTION,
+			}
+		}
+	}
+
+	if (hasCodexControl) {
+		const nextSelections = { ...modelSelectionOfFeature }
+		for (const featureName of ['Ctrl+K', 'Apply', 'SCM'] satisfies FeatureName[]) {
+			if (shouldMoveFeatureToCodex(nextSelections[featureName])) {
+				nextSelections[featureName] = CODEX_CONTROL_SELECTION
+			}
+		}
+		modelSelectionOfFeature = nextSelections
+		globalSettings = {
+			...globalSettings,
+			syncApplyToChat: false,
+			syncSCMToChat: false,
+		}
+	}
+
+	return _validatedModelState({
+		...state,
+		globalSettings,
+		modelSelectionOfFeature,
+	})
+}
+
 
 const _stateWithMergedDefaultModels = (state: VoidSettingsState): VoidSettingsState => {
 	let newSettingsOfProvider = state.settingsOfProvider
@@ -143,6 +207,13 @@ const _stateWithMergedDefaultModels = (state: VoidSettingsState): VoidSettingsSt
 	}
 }
 
+const settingsRequiredToEnableProvider = (providerName: ProviderName) => {
+	return Object.keys(defaultProviderSettings[providerName]).filter(key => {
+		if (providerName === 'openClaw' && (key === 'apiKey' || key === 'headersJSON')) return false
+		return true
+	})
+}
+
 const _validatedModelState = (state: Omit<VoidSettingsState, '_modelOptions'>): VoidSettingsState => {
 
 	let newSettingsOfProvider = state.settingsOfProvider
@@ -151,7 +222,7 @@ const _validatedModelState = (state: Omit<VoidSettingsState, '_modelOptions'>): 
 	for (const providerName of providerNames) {
 		const settingsAtProvider = newSettingsOfProvider[providerName]
 
-		const didFillInProviderSettings = Object.keys(defaultProviderSettings[providerName]).every(key => !!settingsAtProvider[key as keyof typeof settingsAtProvider])
+		const didFillInProviderSettings = settingsRequiredToEnableProvider(providerName).every(key => !!settingsAtProvider[key as keyof typeof settingsAtProvider])
 
 		if (didFillInProviderSettings === settingsAtProvider._didFillInProviderSettings) continue
 
@@ -173,6 +244,12 @@ const _validatedModelState = (state: Omit<VoidSettingsState, '_modelOptions'>): 
 			if (isHidden) continue
 			newModelOptions.push({ name: `${modelName} (${providerTitle})`, selection: { providerName, modelName } })
 		}
+	}
+
+	const codexModel = newSettingsOfProvider.openAI.models.find(m => m.modelName === 'gpt-5.2-codex')
+	const hasCodexModelOption = newModelOptions.some(m => modelSelectionsEqual(m.selection, { providerName: 'openAI', modelName: 'gpt-5.2-codex' }))
+	if (codexModel && !codexModel.isHidden && !hasCodexModelOption) {
+		newModelOptions.push({ name: 'gpt-5.2-codex (openAI)', selection: { providerName: 'openAI', modelName: 'gpt-5.2-codex' } })
 	}
 
 	// now that model options are updated, make sure the selection is valid
@@ -214,7 +291,7 @@ const _validatedModelState = (state: Omit<VoidSettingsState, '_modelOptions'>): 
 const defaultState = () => {
 	const d: VoidSettingsState = {
 		settingsOfProvider: deepClone(defaultSettingsOfProvider),
-		modelSelectionOfFeature: { 'Chat': null, 'Ctrl+K': null, 'Autocomplete': null, 'Apply': null, 'SCM': null },
+		modelSelectionOfFeature: { 'Chat': ONYX_CHATGPT_54_SELECTION, 'Ctrl+K': CODEX_CONTROL_SELECTION, 'Autocomplete': null, 'Apply': CODEX_CONTROL_SELECTION, 'SCM': CODEX_CONTROL_SELECTION },
 		globalSettings: deepClone(defaultGlobalSettings),
 		optionsOfModelSelection: { 'Chat': {}, 'Ctrl+K': {}, 'Autocomplete': {}, 'Apply': {}, 'SCM': {} },
 		overridesOfModel: deepClone(defaultOverridesOfModel),
@@ -262,8 +339,8 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 		this.state = _validatedModelState(newState)
 		await this._storeState()
 		this._onDidChangeState.fire()
-		this._onUpdate_syncApplyToChat()
-		this._onUpdate_syncSCMToChat()
+		if (this.state.globalSettings.syncApplyToChat) this._onUpdate_syncApplyToChat()
+		if (this.state.globalSettings.syncSCMToChat) this._onUpdate_syncSCMToChat()
 	}
 	async resetState() {
 		await this.dangerousSetState(defaultState())
@@ -292,6 +369,9 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 			
 			// add autoAcceptLLMChanges feature
 			if (readS.globalSettings.autoAcceptLLMChanges === undefined) readS.globalSettings.autoAcceptLLMChanges = false;
+
+			// ONYX model split: GPT-5.4 for normal chat, Codex for coding/control surfaces.
+			if (readS.globalSettings.onyxModelRoutingVersion === undefined) readS.globalSettings.onyxModelRoutingVersion = 0;
 		}
 		catch (e) {
 			readS = defaultState()
@@ -339,6 +419,8 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 		this.state = readS
 		this.state = _stateWithMergedDefaultModels(this.state)
 		this.state = _validatedModelState(this.state);
+		this.state = _withOnyxDefaultModelRouting(this.state);
+		await this._storeState();
 
 
 		this._resolver();
@@ -445,8 +527,8 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 		// hooks
 		if (featureName === 'Chat') {
 			// When Chat model changes, update synced features
-			this._onUpdate_syncApplyToChat()
-			this._onUpdate_syncSCMToChat()
+			if (this.state.globalSettings.syncApplyToChat) this._onUpdate_syncApplyToChat()
+			if (this.state.globalSettings.syncSCMToChat) this._onUpdate_syncSCMToChat()
 		}
 	}
 

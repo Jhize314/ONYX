@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { ProviderName, SettingName, displayInfoOfSettingName, providerNames, VoidStatefulModelInfo, customSettingNamesOfProvider, RefreshableProviderName, refreshableProviderNames, displayInfoOfProviderName, nonlocalProviderNames, localProviderNames, GlobalSettingName, featureNames, displayInfoOfFeatureName, isProviderNameDisabled, FeatureName, hasDownloadButtonsOnModelsProviderNames, subTextMdOfProviderName } from '../../../../common/voidSettingsTypes.js'
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js'
 import { VoidButtonBgDarken, VoidCustomDropdownBox, VoidInputBox2, VoidSimpleInputBox, VoidSwitch } from '../util/inputs.js'
-import { useAccessor, useIsDark, useIsOptedOut, useRefreshModelListener, useRefreshModelState, useSettingsState } from '../util/services.js'
+import { useAccessor, useActiveURI, useIsDark, useIsOptedOut, useRefreshModelListener, useRefreshModelState, useSettingsState } from '../util/services.js'
 import { X, RefreshCw, Loader2, Check, Asterisk, Plus } from 'lucide-react'
 import { URI } from '../../../../../../../base/common/uri.js'
 import { ModelDropdown } from './ModelDropdown.js'
@@ -23,12 +23,21 @@ import { MCPServer } from '../../../../common/mcpServiceTypes.js';
 import { useMCPServiceState } from '../util/services.js';
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
+import { ONYX_OPEN_RUNTIME_CONTROL_ACTION_ID, ONYX_OPEN_RUNTIME_FILES_ACTION_ID, ONYX_START_RUNTIME_ACTION_ID } from '../../../../common/onyxRuntimeActionIds.js';
+import type { OnyxCodexRateLimitWindow, OnyxCodexRateLimitsResult } from '../../../../common/onyxCodexStatusServiceTypes.js';
+
+const ONYX_RUNTIME_ENDPOINT = 'http://127.0.0.1:18789'
+const ONYX_RUNTIME_HEALTH_URL = `${ONYX_RUNTIME_ENDPOINT}/health`
+const ONYX_RUNTIME_HEALTH_COMMAND = os === 'windows'
+	? `curl.exe -s --max-time 3 ${ONYX_RUNTIME_HEALTH_URL}`
+	: `curl -s --max-time 3 ${ONYX_RUNTIME_HEALTH_URL}`
 
 type Tab =
 	| 'models'
 	| 'localProviders'
 	| 'providers'
 	| 'featureOptions'
+	| 'runtime'
 	| 'mcp'
 	| 'general'
 	| 'all';
@@ -438,16 +447,18 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 	return <div className=''>
 		{modelDump.map((m, i) => {
 			const { isHidden, type, modelName, providerName, providerEnabled } = m
+			const isCodexModel = providerName === 'openAI' && modelName === 'gpt-5.2-codex'
 
 			const isNewProviderName = (i > 0 ? modelDump[i - 1] : undefined)?.providerName !== providerName
 
 			const providerTitle = displayInfoOfProviderName(providerName).title
 
-			const disabled = !providerEnabled
+			const disabled = !providerEnabled && !isCodexModel
 			const value = disabled ? false : !isHidden
 
 			const tooltipName = (
-				disabled ? `Add ${providerTitle} to enable`
+				isCodexModel ? (value === true ? 'Hide Codex from Dropdown' : 'Show Codex in Dropdown')
+					: disabled ? `Add ${providerTitle} to enable`
 					: value === true ? 'Show in Dropdown'
 						: 'Hide from Dropdown'
 			)
@@ -1029,6 +1040,295 @@ const MCPServersList = () => {
 	return <div className="my-2">{content}</div>
 };
 
+const shortPathName = (fullPath: string) => {
+	const parts = fullPath.split(/[\\/]/).filter(Boolean)
+	return parts[parts.length - 1] || fullPath
+}
+
+const OnyxWorkspaceControlStatus = () => {
+	const accessor = useAccessor()
+	const settingsState = useSettingsState()
+	useActiveURI()
+
+	const workspaceControlService = accessor.get('IOnyxWorkspaceControlService')
+	let workspaceRoot = ''
+	let workspaceFolders: string[] = []
+	let error: string | null = null
+
+	try {
+		const scope = workspaceControlService.getActiveScope()
+		workspaceRoot = scope.workspaceRoot.fsPath || scope.workspaceRoot.path || scope.workspaceRoot.toString()
+		workspaceFolders = scope.workspaceFolders.map(folder => folder.fsPath || folder.path || folder.toString())
+	} catch (e) {
+		error = e instanceof Error ? e.message : String(e)
+	}
+
+	const terminalAutoApprove = settingsState.globalSettings.autoApprove.terminal ? 'On' : 'Off'
+	const editAutoApprove = settingsState.globalSettings.autoApprove.edits ? 'On' : 'Off'
+
+	if (error) {
+		return <div className='border border-void-border-2 rounded-sm px-3 py-2 text-sm text-void-fg-3'>
+			<div className='flex items-center gap-2 text-void-fg-1'>
+				<X className='size-4 stroke-red-500' />
+				<span>Workspace control unavailable</span>
+			</div>
+			<div className='mt-1'>{error}</div>
+		</div>
+	}
+
+	return <div className='border border-void-border-2 rounded-sm px-3 py-3'>
+		<div className='flex items-center gap-2 text-sm text-void-fg-1'>
+			<Check className='size-4 stroke-green-500' />
+			<span>Workspace control enabled</span>
+		</div>
+		<div className='mt-3 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm'>
+			<div className='text-void-fg-3'>Active root</div>
+			<div className='font-mono text-xs text-void-fg-2 truncate' title={workspaceRoot}>{shortPathName(workspaceRoot)}</div>
+
+			<div className='text-void-fg-3'>Open roots</div>
+			<div className='flex flex-col gap-1'>
+				{workspaceFolders.map(folder => (
+					<div key={folder} className='font-mono text-xs text-void-fg-2 truncate' title={folder}>{folder}</div>
+				))}
+			</div>
+
+			<div className='text-void-fg-3'>Auto-approve</div>
+			<div className='text-void-fg-2'>{`Terminal ${terminalAutoApprove}; edits ${editAutoApprove}`}</div>
+
+			<div className='text-void-fg-3'>Boundary</div>
+			<div className='text-void-fg-2'>Outside-workspace paths are blocked. Deletes and risky commands still ask first.</div>
+
+			<div className='text-void-fg-3'>Instructions</div>
+			<div className='text-void-fg-2'>AGENTS.md is loaded from open workspace roots when present.</div>
+		</div>
+	</div>
+}
+
+type OnyxRuntimeHealthState =
+	| { status: 'checking' }
+	| { status: 'online'; statusCode: number; detail: string }
+	| { status: 'offline'; detail: string }
+
+const runtimeHealthDetail = (payload: unknown) => {
+	if (!payload || typeof payload !== 'object') {
+		return 'Health endpoint responded.'
+	}
+
+	const record = payload as Record<string, unknown>
+	const status = typeof record.status === 'string' ? record.status : null
+	const version = typeof record.version === 'string' ? record.version : null
+	const modelCount = Array.isArray(record.models) ? record.models.length : null
+
+	return [
+		status ? `status ${status}` : null,
+		version ? `version ${version}` : null,
+		modelCount !== null ? `${modelCount} models` : null,
+	].filter(Boolean).join('; ') || 'Health endpoint responded.'
+}
+
+const OnyxRuntimeHealthStatus = () => {
+	const accessor = useAccessor()
+	const commandRunnerService = accessor.get('IOnyxCommandRunnerService')
+	const workspaceContextService = accessor.get('IWorkspaceContextService')
+	const [healthState, setHealthState] = useState<OnyxRuntimeHealthState>({ status: 'checking' })
+	const [refreshIndex, setRefreshIndex] = useState(0)
+
+	useEffect(() => {
+		let disposed = false
+		const requestId = `onyx-runtime-health-${Date.now()}-${Math.random().toString(36).slice(2)}`
+		setHealthState({ status: 'checking' })
+
+		const firstFolder = workspaceContextService.getWorkspace().folders[0]
+		if (!firstFolder) {
+			setHealthState({ status: 'offline', detail: 'Open a workspace folder before checking runtime health.' })
+			return () => { }
+		}
+
+		commandRunnerService.runCommand({
+			requestId,
+			command: ONYX_RUNTIME_HEALTH_COMMAND,
+			cwd: firstFolder.uri.fsPath,
+			workspaceFolders: workspaceContextService.getWorkspace().folders.map(folder => folder.uri.fsPath),
+			timeoutMs: 4500,
+			maxOutputChars: 4000,
+		}).then(result => {
+			if (disposed) {
+				return
+			}
+
+			if (result.timedOut) {
+				setHealthState({ status: 'offline', detail: 'Health check timed out.' })
+				return
+			}
+			if (result.exitCode !== 0) {
+				const detail = result.output.trim() || 'Runtime gateway is not responding.'
+				setHealthState({ status: 'offline', detail })
+				return
+			}
+
+			let payload: unknown = null
+			try {
+				payload = JSON.parse(result.output)
+			} catch {
+				setHealthState({ status: 'offline', detail: 'Health endpoint returned invalid JSON.' })
+				return
+			}
+
+			setHealthState({ status: 'online', statusCode: 200, detail: runtimeHealthDetail(payload) })
+		}).catch(error => {
+			if (disposed) {
+				return
+			}
+			const detail = error instanceof Error ? error.message : 'Runtime gateway is not responding.'
+			setHealthState({ status: 'offline', detail })
+		})
+
+		return () => {
+			disposed = true
+			commandRunnerService.abortCommand(requestId).catch(() => { })
+		}
+	}, [commandRunnerService, refreshIndex, workspaceContextService])
+
+	const isChecking = healthState.status === 'checking'
+	const isOnline = healthState.status === 'online'
+
+	return <div className='border border-void-border-2 rounded-sm px-3 py-3'>
+		<div className='flex items-center justify-between gap-3'>
+			<div className='flex items-center gap-2 text-sm text-void-fg-1'>
+				{isChecking
+					? <Loader2 className='size-4 animate-spin' />
+					: isOnline
+						? <Check className='size-4 stroke-green-500' />
+						: <X className='size-4 stroke-red-500' />}
+				<span>{isChecking ? 'Runtime gateway checking' : isOnline ? 'Runtime gateway online' : 'Runtime gateway offline'}</span>
+			</div>
+			<button
+				className='flex size-7 items-center justify-center rounded-sm border border-void-border-2 text-void-fg-3 hover:bg-void-bg-2 disabled:opacity-50'
+				disabled={isChecking}
+				title='Refresh runtime gateway status'
+				onClick={() => setRefreshIndex(idx => idx + 1)}
+			>
+				<RefreshCw className={`size-3.5 ${isChecking ? 'animate-spin' : ''}`} />
+			</button>
+		</div>
+		<div className='mt-2 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm'>
+			<div className='text-void-fg-3'>Endpoint</div>
+			<div className='font-mono text-xs text-void-fg-2 truncate' title={ONYX_RUNTIME_ENDPOINT}>{ONYX_RUNTIME_ENDPOINT}</div>
+
+			<div className='text-void-fg-3'>Health</div>
+			<div className='text-void-fg-2'>{isChecking ? 'Checking /health...' : healthState.detail}</div>
+		</div>
+	</div>
+}
+
+type OnyxCodexRateLimitsState =
+	| { status: 'checking' }
+	| OnyxCodexRateLimitsResult;
+
+const clampPercent = (value: number) => Math.max(0, Math.min(100, value))
+
+const formatRateLimitWindowName = (windowMinutes: number) => {
+	if (windowMinutes === 10080) {
+		return 'Weekly'
+	}
+	if (windowMinutes >= 60 && windowMinutes % 60 === 0) {
+		return `${windowMinutes / 60}h`
+	}
+	return `${windowMinutes}m`
+}
+
+const formatRateLimitReset = (epochSeconds: number | null) => {
+	if (!epochSeconds) {
+		return null
+	}
+	return new Date(epochSeconds * 1000).toLocaleString(undefined, {
+		month: 'short',
+		day: 'numeric',
+		hour: 'numeric',
+		minute: '2-digit',
+	})
+}
+
+const formatCapturedAt = (capturedAt: number | null) => {
+	if (!capturedAt) {
+		return 'unknown'
+	}
+	return new Date(capturedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+}
+
+const CodexRateLimitRow = ({ windowInfo }: { windowInfo: OnyxCodexRateLimitWindow }) => {
+	const remaining = clampPercent(100 - windowInfo.usedPercent)
+	const reset = formatRateLimitReset(windowInfo.resetsAt)
+	return <div className='grid grid-cols-[4.5rem_minmax(0,1fr)_3.5rem] items-center gap-3 text-sm'>
+		<div className='text-void-fg-2'>{formatRateLimitWindowName(windowInfo.windowMinutes)}</div>
+		<div className='h-1.5 overflow-hidden rounded-sm bg-void-bg-3'>
+			<div className='h-full bg-void-fg-3' style={{ width: `${remaining}%` }} />
+		</div>
+		<div className='text-right font-mono text-xs text-void-fg-2'>{Math.round(remaining)}%</div>
+		{reset ? <div className='col-start-2 col-span-2 -mt-1 text-xs text-void-fg-4'>resets {reset}</div> : null}
+	</div>
+}
+
+const OnyxCodexRateLimitsStatus = () => {
+	const accessor = useAccessor()
+	const codexStatusService = accessor.get('IOnyxCodexStatusService')
+	const [rateLimitState, setRateLimitState] = useState<OnyxCodexRateLimitsState>({ status: 'checking' })
+	const [refreshIndex, setRefreshIndex] = useState(0)
+
+	useEffect(() => {
+		let disposed = false
+		setRateLimitState({ status: 'checking' })
+		codexStatusService.getRateLimits()
+			.then(result => {
+				if (!disposed) {
+					setRateLimitState(result)
+				}
+			})
+			.catch(error => {
+				if (!disposed) {
+					setRateLimitState({ status: 'unavailable', detail: error instanceof Error ? error.message : 'Unable to read Codex rate limits.' })
+				}
+			})
+		return () => {
+			disposed = true
+		}
+	}, [codexStatusService, refreshIndex])
+
+	const isChecking = rateLimitState.status === 'checking'
+	const isAvailable = rateLimitState.status === 'available'
+
+	return <div className='border border-void-border-2 rounded-sm px-3 py-3'>
+		<div className='flex items-center justify-between gap-3'>
+			<div className='flex items-center gap-2 text-sm text-void-fg-1'>
+				{isChecking
+					? <Loader2 className='size-4 animate-spin' />
+					: isAvailable
+						? <Check className='size-4 stroke-green-500' />
+						: <X className='size-4 stroke-red-500' />}
+				<span>Codex rate limits remaining</span>
+			</div>
+			<button
+				className='flex size-7 items-center justify-center rounded-sm border border-void-border-2 text-void-fg-3 hover:bg-void-bg-2 disabled:opacity-50'
+				disabled={isChecking}
+				title='Refresh Codex rate limits'
+				onClick={() => setRefreshIndex(idx => idx + 1)}
+			>
+				<RefreshCw className={`size-3.5 ${isChecking ? 'animate-spin' : ''}`} />
+			</button>
+		</div>
+		<div className='mt-3 flex flex-col gap-2'>
+			{isChecking ? <div className='text-sm text-void-fg-3'>Reading latest Codex usage snapshot...</div> : null}
+			{rateLimitState.status === 'unavailable' ? <div className='text-sm text-void-fg-3'>{rateLimitState.detail}</div> : null}
+			{rateLimitState.status === 'available' ? <>
+				{rateLimitState.primary ? <CodexRateLimitRow windowInfo={rateLimitState.primary} /> : null}
+				{rateLimitState.secondary ? <CodexRateLimitRow windowInfo={rateLimitState.secondary} /> : null}
+				{!rateLimitState.primary && !rateLimitState.secondary ? <div className='text-sm text-void-fg-3'>No rate-limit windows were present in the latest Codex snapshot.</div> : null}
+				<div className='mt-1 text-xs text-void-fg-4'>Last updated {formatCapturedAt(rateLimitState.capturedAt)}</div>
+			</> : null}
+		</div>
+	</div>
+}
+
 export const Settings = () => {
 	const isDark = useIsDark()
 	// ─── sidebar nav ──────────────────────────
@@ -1040,6 +1340,7 @@ export const Settings = () => {
 		{ tab: 'localProviders', label: 'Local Providers' },
 		{ tab: 'providers', label: 'Main Providers' },
 		{ tab: 'featureOptions', label: 'Feature Options' },
+		{ tab: 'runtime', label: 'ONYX Runtime' },
 		{ tab: 'general', label: 'General' },
 		{ tab: 'mcp', label: 'MCP' },
 		{ tab: 'all', label: 'All Settings' },
@@ -1299,7 +1600,7 @@ export const Settings = () => {
 										{/* Tools Section */}
 										<div>
 											<h4 className={`text-base`}>Tools</h4>
-											<div className='text-sm text-void-fg-3 mt-1'>{`Tools are functions that LLMs can call. Some tools require user approval.`}</div>
+											<div className='text-sm text-void-fg-3 mt-1'>{`Execute can use file and terminal tools inside open workspace folders. Deletes, risky shell/system/network commands, and outside-workspace path references still require approval or are blocked.`}</div>
 
 											<div className='my-2'>
 												{/* Auto Accept Switch */}
@@ -1390,8 +1691,40 @@ export const Settings = () => {
 								</ErrorBoundary>
 							</div>
 
+							{/* ONYX Runtime section */}
+							<div className={shouldShowTab('runtime') ? `` : 'hidden'}>
+								<div className='flex flex-col gap-6'>
+									<h2 className='text-3xl mb-2'>ONYX Runtime</h2>
+									<div className='flex flex-col gap-3'>
+										<OnyxRuntimeHealthStatus />
+										<OnyxCodexRateLimitsStatus />
+										<OnyxWorkspaceControlStatus />
+										<div className='flex flex-wrap gap-3'>
+											<VoidButtonBgDarken className='px-4 py-1' onClick={async () => { await commandService.executeCommand(ONYX_OPEN_RUNTIME_CONTROL_ACTION_ID) }}>
+												Runtime Control
+											</VoidButtonBgDarken>
+											<VoidButtonBgDarken className='px-4 py-1' onClick={async () => { await commandService.executeCommand(ONYX_START_RUNTIME_ACTION_ID) }}>
+												Start Runtime
+											</VoidButtonBgDarken>
+											<VoidButtonBgDarken className='px-4 py-1' onClick={async () => { await commandService.executeCommand(ONYX_OPEN_RUNTIME_FILES_ACTION_ID) }}>
+												Runtime Files
+											</VoidButtonBgDarken>
+										</div>
+									</div>
+								</div>
+							</div>
+
 							{/* General section */}
 							<div className={`${shouldShowTab('general') ? `` : 'hidden'} flex flex-col gap-12`}>
+								{/* Account usage section */}
+								<div className='max-w-[600px]'>
+									<ErrorBoundary>
+										<h2 className='text-3xl mb-2'>Account Usage</h2>
+										<h4 className='text-void-fg-3 mb-4'>Codex and ONYX Runtime usage windows from the latest local OAuth session snapshot.</h4>
+										<OnyxCodexRateLimitsStatus />
+									</ErrorBoundary>
+								</div>
+
 								{/* One-Click Switch section */}
 								<div>
 									<ErrorBoundary>
@@ -1534,7 +1867,7 @@ Alternatively, place a \`.voidrules\` file in the root of your workspace.
 									<h2 className='text-3xl mb-2'>MCP</h2>
 									<h4 className={`text-void-fg-3 mb-4`}>
 										<ChatMarkdownRender inPTag={true} string={`
-Use Model Context Protocol to provide Agent mode with more tools.
+Use Model Context Protocol to provide Codex mode with more tools.
 							`} chatMessageLocation={undefined} />
 									</h4>
 									<div className='my-2'>

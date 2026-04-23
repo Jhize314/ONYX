@@ -359,7 +359,7 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 		}
 
 		// These are windows to restore because of hot-exit or from previous session (only performed once on startup!)
-		if (openConfig.initialStartup) {
+		if (openConfig.initialStartup && !openConfig.cli['no-restore-windows']) {
 
 			// Untitled workspaces are always restored
 			untitledWorkspacesToRestore.push(...this.workspacesManagementMainService.getUntitledWorkspaces());
@@ -809,7 +809,7 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 		// not restored windows already otherwise.
 		// Use `unshift` to ensure any new window to open comes last for proper
 		// focus treatment.
-		if (openConfig.initialStartup && !isRestoringPaths && this.configurationService.getValue<IWindowSettings | undefined>('window')?.restoreWindows === 'preserve') {
+		if (!openConfig.cli['no-restore-windows'] && openConfig.initialStartup && !isRestoringPaths && this.configurationService.getValue<IWindowSettings | undefined>('window')?.restoreWindows === 'preserve') {
 			const lastSessionPaths = await this.doGetPathsFromLastSession();
 			pathsToOpen.unshift(...lastSessionPaths.filter(path => isWorkspacePathToOpen(path) || isSingleFolderWorkspacePathToOpen(path) || path.backupPath));
 		}

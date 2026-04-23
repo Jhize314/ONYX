@@ -16,9 +16,11 @@ import { computeDirectoryTree1Deep, IDirectoryStrService, stringifyDirectoryTree
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js'
 import { timeout } from '../../../../base/common/async.js'
 import { RawToolParamsObj } from '../common/sendLLMMessageTypes.js'
-import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME } from '../common/prompt/prompts.js'
+import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_CHARS, MAX_TERMINAL_INACTIVE_TIME } from '../common/prompt/prompts.js'
 import { IVoidSettingsService } from '../common/voidSettingsService.js'
 import { generateUuid } from '../../../../base/common/uuid.js'
+import { IOnyxWorkspaceControlService } from './onyxWorkspaceControlService.js'
+import { IOnyxCommandRunnerService } from '../common/onyxCommandRunnerServiceTypes.js'
 
 
 // tool use for AI
@@ -35,41 +37,6 @@ const validateStr = (argName: string, value: unknown) => {
 	if (value === null) throw new Error(`Invalid LLM output: ${argName} was null.`)
 	if (typeof value !== 'string') throw new Error(`Invalid LLM output format: ${argName} must be a string, but its type is "${typeof value}". Full value: ${JSON.stringify(value)}.`)
 	return value
-}
-
-
-// We are NOT checking to make sure in workspace
-const validateURI = (uriStr: unknown) => {
-	if (uriStr === null) throw new Error(`Invalid LLM output: uri was null.`)
-	if (typeof uriStr !== 'string') throw new Error(`Invalid LLM output format: Provided uri must be a string, but it's a(n) ${typeof uriStr}. Full value: ${JSON.stringify(uriStr)}.`)
-
-	// Check if it's already a full URI with scheme (e.g., vscode-remote://, file://, etc.)
-	// Look for :// pattern which indicates a scheme is present
-	// Examples of supported URIs:
-	// - vscode-remote://wsl+Ubuntu/home/user/file.txt (WSL)
-	// - vscode-remote://ssh-remote+myserver/home/user/file.txt (SSH)
-	// - file:///home/user/file.txt (local file with scheme)
-	// - /home/user/file.txt (local file path, will be converted to file://)
-	// - C:\Users\file.txt (Windows local path, will be converted to file://)
-	if (uriStr.includes('://')) {
-		try {
-			const uri = URI.parse(uriStr)
-			return uri
-		} catch (e) {
-			// If parsing fails, it's a malformed URI
-			throw new Error(`Invalid URI format: ${uriStr}. Error: ${e}`)
-		}
-	} else {
-		// No scheme present, treat as file path
-		// This handles regular file paths like /home/user/file.txt or C:\Users\file.txt
-		const uri = URI.file(uriStr)
-		return uri
-	}
-}
-
-const validateOptionalURI = (uriStr: unknown) => {
-	if (isFalsy(uriStr)) return null
-	return validateURI(uriStr)
 }
 
 const validateOptionalStr = (argName: string, str: unknown) => {
@@ -129,6 +96,8 @@ export interface IToolsService {
 	validateParams: ValidateBuiltinParams;
 	callTool: CallBuiltinTool;
 	stringOfResult: BuiltinToolResultToString;
+	requiresExplicitApproval: <T extends BuiltinToolName>(toolName: T, params: BuiltinToolCallParams[T]) => boolean;
+	getExplicitApprovalReason: <T extends BuiltinToolName>(toolName: T, params: BuiltinToolCallParams[T]) => string | null;
 }
 
 export const IToolsService = createDecorator<IToolsService>('ToolsService');
@@ -140,6 +109,8 @@ export class ToolsService implements IToolsService {
 	public validateParams: ValidateBuiltinParams;
 	public callTool: CallBuiltinTool;
 	public stringOfResult: BuiltinToolResultToString;
+	public requiresExplicitApproval: IToolsService['requiresExplicitApproval'];
+	public getExplicitApprovalReason: IToolsService['getExplicitApprovalReason'];
 
 	constructor(
 		@IFileService fileService: IFileService,
@@ -153,13 +124,22 @@ export class ToolsService implements IToolsService {
 		@IDirectoryStrService private readonly directoryStrService: IDirectoryStrService,
 		@IMarkerService private readonly markerService: IMarkerService,
 		@IVoidSettingsService private readonly voidSettingsService: IVoidSettingsService,
+		@IOnyxWorkspaceControlService private readonly onyxWorkspaceControlService: IOnyxWorkspaceControlService,
+		@IOnyxCommandRunnerService private readonly onyxCommandRunnerService: IOnyxCommandRunnerService,
 	) {
 		const queryBuilder = instantiationService.createInstance(QueryBuilder);
+		const validateToolURI = (uriStr: unknown, operation: string, opts?: { allowEmptyAsWorkspaceRoot?: boolean }) => {
+			return this.onyxWorkspaceControlService.resolveToolUri(uriStr, { operation, allowEmptyAsWorkspaceRoot: opts?.allowEmptyAsWorkspaceRoot })
+		}
+		const validateOptionalToolURI = (uriStr: unknown, operation: string) => {
+			if (isFalsy(uriStr)) return null
+			return validateToolURI(uriStr, operation)
+		}
 
 		this.validateParams = {
 			read_file: (params: RawToolParamsObj) => {
 				const { uri: uriStr, start_line: startLineUnknown, end_line: endLineUnknown, page_number: pageNumberUnknown } = params
-				const uri = validateURI(uriStr)
+				const uri = validateToolURI(uriStr, 'read')
 				const pageNumber = validatePageNum(pageNumberUnknown)
 
 				let startLine = validateNumber(startLineUnknown, { default: null })
@@ -173,13 +153,13 @@ export class ToolsService implements IToolsService {
 			ls_dir: (params: RawToolParamsObj) => {
 				const { uri: uriStr, page_number: pageNumberUnknown } = params
 
-				const uri = validateURI(uriStr)
+				const uri = validateToolURI(uriStr, 'list', { allowEmptyAsWorkspaceRoot: true })
 				const pageNumber = validatePageNum(pageNumberUnknown)
 				return { uri, pageNumber }
 			},
 			get_dir_tree: (params: RawToolParamsObj) => {
 				const { uri: uriStr, } = params
-				const uri = validateURI(uriStr)
+				const uri = validateToolURI(uriStr, 'read directory tree for')
 				return { uri }
 			},
 			search_pathnames_only: (params: RawToolParamsObj) => {
@@ -205,7 +185,7 @@ export class ToolsService implements IToolsService {
 				} = params
 				const queryStr = validateStr('query', queryUnknown)
 				const pageNumber = validatePageNum(pageNumberUnknown)
-				const searchInFolder = validateOptionalURI(searchInFolderUnknown)
+				const searchInFolder = validateOptionalToolURI(searchInFolderUnknown, 'search')
 				const isRegex = validateBoolean(isRegexUnknown, { default: false })
 				return {
 					query: queryStr,
@@ -216,7 +196,7 @@ export class ToolsService implements IToolsService {
 			},
 			search_in_file: (params: RawToolParamsObj) => {
 				const { uri: uriStr, query: queryUnknown, is_regex: isRegexUnknown } = params;
-				const uri = validateURI(uriStr);
+				const uri = validateToolURI(uriStr, 'search');
 				const query = validateStr('query', queryUnknown);
 				const isRegex = validateBoolean(isRegexUnknown, { default: false });
 				return { uri, query, isRegex };
@@ -226,7 +206,7 @@ export class ToolsService implements IToolsService {
 				const {
 					uri: uriUnknown,
 				} = params
-				const uri = validateURI(uriUnknown)
+				const uri = validateToolURI(uriUnknown, 'read diagnostics for')
 				return { uri }
 			},
 
@@ -234,7 +214,7 @@ export class ToolsService implements IToolsService {
 
 			create_file_or_folder: (params: RawToolParamsObj) => {
 				const { uri: uriUnknown } = params
-				const uri = validateURI(uriUnknown)
+				const uri = validateToolURI(uriUnknown, 'create')
 				const uriStr = validateStr('uri', uriUnknown)
 				const isFolder = checkIfIsFolder(uriStr)
 				return { uri, isFolder }
@@ -242,7 +222,7 @@ export class ToolsService implements IToolsService {
 
 			delete_file_or_folder: (params: RawToolParamsObj) => {
 				const { uri: uriUnknown, is_recursive: isRecursiveUnknown } = params
-				const uri = validateURI(uriUnknown)
+				const uri = validateToolURI(uriUnknown, 'delete')
 				const isRecursive = validateBoolean(isRecursiveUnknown, { default: false })
 				const uriStr = validateStr('uri', uriUnknown)
 				const isFolder = checkIfIsFolder(uriStr)
@@ -251,14 +231,14 @@ export class ToolsService implements IToolsService {
 
 			rewrite_file: (params: RawToolParamsObj) => {
 				const { uri: uriStr, new_content: newContentUnknown } = params
-				const uri = validateURI(uriStr)
+				const uri = validateToolURI(uriStr, 'rewrite')
 				const newContent = validateStr('newContent', newContentUnknown)
 				return { uri, newContent }
 			},
 
 			edit_file: (params: RawToolParamsObj) => {
 				const { uri: uriStr, search_replace_blocks: searchReplaceBlocksUnknown } = params
-				const uri = validateURI(uriStr)
+				const uri = validateToolURI(uriStr, 'edit')
 				const searchReplaceBlocks = validateStr('searchReplaceBlocks', searchReplaceBlocksUnknown)
 				return { uri, searchReplaceBlocks }
 			},
@@ -269,12 +249,15 @@ export class ToolsService implements IToolsService {
 				const { command: commandUnknown, cwd: cwdUnknown } = params
 				const command = validateStr('command', commandUnknown)
 				const cwd = validateOptionalStr('cwd', cwdUnknown)
+				const resolvedCwd = this.onyxWorkspaceControlService.resolveToolCwd(cwd)
+				this.onyxWorkspaceControlService.validateCommand(command, { cwd: resolvedCwd })
 				const terminalId = generateUuid()
-				return { command, cwd, terminalId }
+				return { command, cwd: resolvedCwd, terminalId }
 			},
 			run_persistent_command: (params: RawToolParamsObj) => {
 				const { command: commandUnknown, persistent_terminal_id: persistentTerminalIdUnknown } = params;
 				const command = validateStr('command', commandUnknown);
+				this.onyxWorkspaceControlService.validateCommand(command)
 				const persistentTerminalId = validateProposedTerminalId(persistentTerminalIdUnknown)
 				return { command, persistentTerminalId };
 			},
@@ -282,7 +265,7 @@ export class ToolsService implements IToolsService {
 				const { cwd: cwdUnknown } = params;
 				const cwd = validateOptionalStr('cwd', cwdUnknown)
 				// No parameters needed; will open a new background terminal
-				return { cwd };
+				return { cwd: this.onyxWorkspaceControlService.resolveToolCwd(cwd) };
 			},
 			kill_persistent_terminal: (params: RawToolParamsObj) => {
 				const { persistent_terminal_id: terminalIdUnknown } = params;
@@ -290,6 +273,25 @@ export class ToolsService implements IToolsService {
 				return { persistentTerminalId };
 			},
 
+		}
+
+		this.getExplicitApprovalReason = (toolName, params) => {
+			if (toolName === 'delete_file_or_folder') {
+				return 'Deletes always require explicit approval.'
+			}
+			if (toolName === 'run_command') {
+				const commandParams = params as BuiltinToolCallParams['run_command']
+				return this.onyxWorkspaceControlService.commandApprovalReason(commandParams.command)
+			}
+			if (toolName === 'run_persistent_command') {
+				const commandParams = params as BuiltinToolCallParams['run_persistent_command']
+				return this.onyxWorkspaceControlService.commandApprovalReason(commandParams.command)
+			}
+			return null
+		}
+
+		this.requiresExplicitApproval = (toolName, params) => {
+			return !!this.getExplicitApprovalReason(toolName, params)
 		}
 
 
@@ -445,8 +447,19 @@ export class ToolsService implements IToolsService {
 			},
 			// ---
 			run_command: async ({ command, cwd, terminalId }) => {
-				const { resPromise, interrupt } = await this.terminalToolService.runCommand(command, { type: 'temporary', cwd, terminalId })
-				return { result: resPromise, interruptTool: interrupt }
+				const workspaceFolders = this.onyxWorkspaceControlService.getActiveScope().workspaceFolders.map(uri => uri.fsPath)
+				const result = this.onyxCommandRunnerService.runCommand({
+					requestId: terminalId,
+					command,
+					cwd: cwd.fsPath,
+					workspaceFolders,
+					timeoutMs: MAX_TERMINAL_INACTIVE_TIME * 1000,
+					maxOutputChars: MAX_TERMINAL_CHARS,
+				}).then(({ output, exitCode, timedOut }) => ({
+					result: `$ ${command}\n${output}`,
+					resolveReason: timedOut ? { type: 'timeout' as const } : { type: 'done' as const, exitCode },
+				}))
+				return { result, interruptTool: () => { this.onyxCommandRunnerService.abortCommand(terminalId); } }
 			},
 			run_persistent_command: async ({ command, persistentTerminalId }) => {
 				const { resPromise, interrupt } = await this.terminalToolService.runCommand(command, { type: 'persistent', persistentTerminalId })

@@ -16,7 +16,7 @@ type UnionOfKeys<T> = T extends T ? keyof T : never;
 export type ProviderName = keyof typeof defaultProviderSettings
 export const providerNames = Object.keys(defaultProviderSettings) as ProviderName[]
 
-export const localProviderNames = ['ollama', 'vLLM', 'lmStudio'] satisfies ProviderName[] // all local names
+export const localProviderNames = ['ollama', 'vLLM', 'lmStudio', 'openClaw'] satisfies ProviderName[] // all local names
 export const nonlocalProviderNames = providerNames.filter((name) => !(localProviderNames as string[]).includes(name)) // all non-local names
 
 type CustomSettingName = UnionOfKeys<typeof defaultProviderSettings[ProviderName]>
@@ -63,6 +63,9 @@ export const displayInfoOfProviderName = (providerName: ProviderName): DisplayIn
 	}
 	else if (providerName === 'openAI') {
 		return { title: 'OpenAI', }
+	}
+	else if (providerName === 'openClaw') {
+		return { title: 'ONYX Runtime', }
 	}
 	else if (providerName === 'deepseek') {
 		return { title: 'DeepSeek', }
@@ -114,6 +117,7 @@ export const subTextMdOfProviderName = (providerName: ProviderName): string => {
 
 	if (providerName === 'anthropic') return 'Get your [API Key here](https://console.anthropic.com/settings/keys).'
 	if (providerName === 'openAI') return 'Get your [API Key here](https://platform.openai.com/api-keys).'
+	if (providerName === 'openClaw') return 'Connect to the local ONYX runtime. Use `onyx/default` as the model; set a token/password only if local runtime auth requires one.'
 	if (providerName === 'deepseek') return 'Get your [API Key here](https://platform.deepseek.com/api_keys).'
 	if (providerName === 'openRouter') return 'Get your [API Key here](https://openrouter.ai/settings/keys). Read about [rate limits here](https://openrouter.ai/docs/api-reference/limits).'
 	if (providerName === 'gemini') return 'Get your [API Key here](https://aistudio.google.com/apikey). Read about [rate limits here](https://ai.google.dev/gemini-api/docs/rate-limits#current-rate-limits).'
@@ -140,23 +144,24 @@ type DisplayInfo = {
 export const displayInfoOfSettingName = (providerName: ProviderName, settingName: SettingName): DisplayInfo => {
 	if (settingName === 'apiKey') {
 		return {
-			title: 'API Key',
+			title: providerName === 'openClaw' ? 'Runtime Token / Password' : 'API Key',
 
 			// **Please follow this convention**:
 			// The word "key..." here is a placeholder for the hash. For example, sk-ant-key... means the key will look like sk-ant-abcdefg123...
 			placeholder: providerName === 'anthropic' ? 'sk-ant-key...' : // sk-ant-api03-key
 				providerName === 'openAI' ? 'sk-proj-key...' :
-					providerName === 'deepseek' ? 'sk-key...' :
-						providerName === 'openRouter' ? 'sk-or-key...' : // sk-or-v1-key
-							providerName === 'gemini' ? 'AIzaSy...' :
-								providerName === 'groq' ? 'gsk_key...' :
-									providerName === 'openAICompatible' ? 'sk-key...' :
-										providerName === 'xAI' ? 'xai-key...' :
-											providerName === 'mistral' ? 'api-key...' :
-												providerName === 'googleVertex' ? 'AIzaSy...' :
-													providerName === 'microsoftAzure' ? 'key-...' :
-														providerName === 'awsBedrock' ? 'key-...' :
-															'',
+					providerName === 'openClaw' ? 'optional runtime token/password...' :
+						providerName === 'deepseek' ? 'sk-key...' :
+							providerName === 'openRouter' ? 'sk-or-key...' : // sk-or-v1-key
+								providerName === 'gemini' ? 'AIzaSy...' :
+									providerName === 'groq' ? 'gsk_key...' :
+										providerName === 'openAICompatible' ? 'sk-key...' :
+											providerName === 'xAI' ? 'xai-key...' :
+												providerName === 'mistral' ? 'api-key...' :
+													providerName === 'googleVertex' ? 'AIzaSy...' :
+														providerName === 'microsoftAzure' ? 'key-...' :
+															providerName === 'awsBedrock' ? 'key-...' :
+																'',
 
 			isPasswordField: true,
 		}
@@ -166,26 +171,31 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 			title: providerName === 'ollama' ? 'Endpoint' :
 				providerName === 'vLLM' ? 'Endpoint' :
 					providerName === 'lmStudio' ? 'Endpoint' :
-						providerName === 'openAICompatible' ? 'baseURL' : // (do not include /chat/completions)
-							providerName === 'googleVertex' ? 'baseURL' :
-								providerName === 'microsoftAzure' ? 'baseURL' :
-									providerName === 'liteLLM' ? 'baseURL' :
-										providerName === 'awsBedrock' ? 'Endpoint' :
-											'(never)',
+						providerName === 'openClaw' ? 'Runtime baseURL' :
+							providerName === 'openAICompatible' ? 'baseURL' : // (do not include /chat/completions)
+								providerName === 'googleVertex' ? 'baseURL' :
+									providerName === 'microsoftAzure' ? 'baseURL' :
+										providerName === 'liteLLM' ? 'baseURL' :
+											providerName === 'awsBedrock' ? 'Endpoint' :
+												'(never)',
 
 			placeholder: providerName === 'ollama' ? defaultProviderSettings.ollama.endpoint
 				: providerName === 'vLLM' ? defaultProviderSettings.vLLM.endpoint
-					: providerName === 'openAICompatible' ? 'https://my-website.com/v1'
-						: providerName === 'lmStudio' ? defaultProviderSettings.lmStudio.endpoint
-							: providerName === 'liteLLM' ? 'http://localhost:4000'
-								: providerName === 'awsBedrock' ? 'http://localhost:4000/v1'
-									: '(never)',
+					: providerName === 'openClaw' ? `${defaultProviderSettings.openClaw.endpoint}/v1`
+						: providerName === 'openAICompatible' ? 'https://my-website.com/v1'
+							: providerName === 'lmStudio' ? defaultProviderSettings.lmStudio.endpoint
+								: providerName === 'liteLLM' ? 'http://localhost:4000'
+									: providerName === 'awsBedrock' ? 'http://localhost:4000/v1'
+										: '(never)',
 
 
 		}
 	}
 	else if (settingName === 'headersJSON') {
-		return { title: 'Custom Headers', placeholder: '{ "X-Request-Id": "..." }' }
+		return {
+			title: providerName === 'openClaw' ? 'Runtime Headers' : 'Custom Headers',
+			placeholder: providerName === 'openClaw' ? '{}' : '{ "X-Request-Id": "..." }'
+		}
 	}
 	else if (settingName === 'region') {
 		// vertex only
@@ -266,6 +276,12 @@ export const defaultSettingsOfProvider: SettingsOfProvider = {
 		...defaultCustomSettings,
 		...defaultProviderSettings.openAI,
 		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.openAI),
+		_didFillInProviderSettings: undefined,
+	},
+	openClaw: {
+		...defaultCustomSettings,
+		...defaultProviderSettings.openClaw,
+		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.openClaw),
 		_didFillInProviderSettings: undefined,
 	},
 	deepseek: {
@@ -435,7 +451,7 @@ export const isFeatureNameDisabled = (featureName: FeatureName, settingsState: V
 
 
 
-export type ChatMode = 'agent' | 'gather' | 'normal'
+export type ChatMode = 'agent' | 'plan' | 'collect' | 'analyze' | 'report' | 'gather' | 'normal'
 
 
 export type GlobalSettings = {
@@ -452,6 +468,7 @@ export type GlobalSettings = {
 	isOnboardingComplete: boolean;
 	disableSystemMessage: boolean;
 	autoAcceptLLMChanges: boolean;
+	onyxModelRoutingVersion: number;
 }
 
 export const defaultGlobalSettings: GlobalSettings = {
@@ -461,13 +478,14 @@ export const defaultGlobalSettings: GlobalSettings = {
 	syncApplyToChat: true,
 	syncSCMToChat: true,
 	enableFastApply: true,
-	chatMode: 'agent',
+	chatMode: 'normal',
 	autoApprove: {},
 	showInlineSuggestions: true,
 	includeToolLintErrors: true,
 	isOnboardingComplete: false,
 	disableSystemMessage: false,
 	autoAcceptLLMChanges: false,
+	onyxModelRoutingVersion: 0,
 }
 
 export type GlobalSettingName = keyof GlobalSettings

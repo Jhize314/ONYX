@@ -3,11 +3,12 @@ import { deepClone } from '../../../../base/common/objects.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ChatMessage } from '../common/chatThreadServiceTypes.js';
 import { getIsReasoningEnabledState, getReservedOutputTokenSpace, getModelCapabilities } from '../common/modelCapabilities.js';
-import { reParsedToolXMLString, chat_systemMessage } from '../common/prompt/prompts.js';
+import { reParsedToolXMLString, chat_systemMessage, chatModeUsesTools } from '../common/prompt/prompts.js';
 import { AnthropicLLMChatMessage, AnthropicReasoning, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, OpenAILLMChatMessage, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { IVoidSettingsService } from '../common/voidSettingsService.js';
 import { ChatMode, FeatureName, ModelSelection, ProviderName } from '../common/voidSettingsTypes.js';
@@ -535,6 +536,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 	constructor(
 		@IModelService private readonly modelService: IModelService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+		@IFileService private readonly fileService: IFileService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IDirectoryStrService private readonly directoryStrService: IDirectoryStrService,
 		@ITerminalToolService private readonly terminalToolService: ITerminalToolService,
@@ -574,6 +576,35 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		return ans.join('\n\n')
 	}
 
+	private async _getWorkspaceAgentsInstructions(): Promise<string> {
+		const workspaceFolders = this.workspaceContextService.getWorkspace().folders;
+		const instructionBlocks: string[] = [];
+		let remainingChars = 20_000;
+
+		for (const folder of workspaceFolders) {
+			if (remainingChars <= 0) {
+				break;
+			}
+
+			const uri = URI.joinPath(folder.uri, 'AGENTS.md');
+			try {
+				const file = await this.fileService.readFile(uri, { limits: { size: remainingChars } });
+				const contents = file.value.toString().trim();
+				if (!contents) {
+					continue;
+				}
+
+				const block = `Instructions from ${uri.fsPath}:\n${contents}`;
+				instructionBlocks.push(block);
+				remainingChars -= block.length;
+			} catch {
+				continue;
+			}
+		}
+
+		return instructionBlocks.join('\n\n');
+	}
+
 
 	// system message
 	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined) => {
@@ -583,7 +614,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const activeURI = this.editorService.activeEditor?.resource?.fsPath;
 
 		const directoryStr = await this.directoryStrService.getAllDirectoriesStr({
-			cutOffMessage: chatMode === 'agent' || chatMode === 'gather' ?
+			cutOffMessage: chatModeUsesTools(chatMode) ?
 				`...Directories string cut off, use tools to read more...`
 				: `...Directories string cut off, ask user for more if necessary...`
 		})
@@ -593,7 +624,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const mcpTools = this.mcpService.getMCPTools()
 
 		const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds()
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions })
+		const workspaceInstructions = await this._getWorkspaceAgentsInstructions()
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, workspaceInstructions })
 		return systemMessage
 	}
 
